@@ -1,0 +1,15 @@
+[project]
+name = "virtual-bank-bot"
+version = "1.0.0"
+description = "Private Telegram bot for tracking virtual bank accounts"
+requires-python = ">=3.12"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["."]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

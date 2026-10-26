@@ -1,0 +1,13 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_PATH: /app/data/bank_manager.db
+    volumes:
+      - bot-data:/app/data
+
+volumes:
+  bot-data:
