@@ -8,6 +8,7 @@ from app.config import Settings
 from app.database.connection import Database
 from app.services.accounts import AccountDraft
 from app.services.container import Services, build_services
+from app.services.credentials import generate_key
 
 
 def draft(**kwargs) -> AccountDraft:
@@ -34,6 +35,7 @@ def settings(tmp_path: Path) -> Settings:
         reminder_time="09:00",
         log_level="WARNING",
         dev_allow_any_user=False,
+        account_credentials_key=generate_key(),
     )
 
 

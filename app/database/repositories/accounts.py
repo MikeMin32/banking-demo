@@ -11,6 +11,23 @@ _ACCOUNT_ORDER = (
     "ORDER BY (vm_number IS NULL), vm_number ASC, company_name COLLATE NOCASE ASC, id ASC"
 )
 
+_NEW_FIELDS = (
+    "line_name",
+    "linked_vm",
+    "stored_where",
+    "iban",
+    "bin",
+    "login_mobile",
+    "login_email",
+    "login_password_encrypted",
+    "two_fa_method",
+)
+
+
+def _row_get(row, key: str, default=None):
+    keys = set(row.keys())
+    return row[key] if key in keys else default
+
 
 @dataclass(slots=True)
 class Account:
@@ -30,22 +47,54 @@ class Account:
     created_at: str
     updated_at: str
     is_archived: bool
+    line_name: str | None = None
+    linked_vm: str | None = None
+    stored_where: str | None = None
+    iban: str | None = None
+    bin: str | None = None
+    login_mobile: str | None = None
+    login_email: str | None = None
+    login_password_encrypted: str | None = None
+    two_fa_method: str | None = None
 
     @property
     def banking_provider(self) -> str:
         return self.bank_name
 
+    @property
+    def line_label(self) -> str:
+        for value in (self.line_name, self.company_name, self.display_name):
+            if value and str(value).strip():
+                return str(value).strip()
+        return "Unnamed line"
+
+    @property
+    def vm_label(self) -> str:
+        if self.linked_vm and self.linked_vm.strip():
+            return self.linked_vm.strip()
+        if self.vm_number is not None:
+            return f"VM {self.vm_number}"
+        return "—"
+
+    @property
+    def stored_label(self) -> str:
+        if self.stored_where and self.stored_where.strip():
+            return self.stored_where.strip()
+        return "—"
+
+    @property
+    def has_password(self) -> bool:
+        return bool(self.login_password_encrypted)
+
     @classmethod
     def from_row(cls, row) -> Account:
-        keys = set(row.keys())
-        vm_number = row["vm_number"] if "vm_number" in keys else None
-        company_name = row["company_name"] if "company_name" in keys else None
+        vm_number = _row_get(row, "vm_number")
         return cls(
             id=row["id"],
             display_name=row["display_name"],
             bank_name=row["bank_name"],
             vm_number=int(vm_number) if vm_number is not None else None,
-            company_name=company_name,
+            company_name=_row_get(row, "company_name"),
             currency=row["currency"],
             balance_minor=int(row["balance_minor"]),
             last_updated_at=row["last_updated_at"],
@@ -57,6 +106,15 @@ class Account:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             is_archived=bool(row["is_archived"]),
+            line_name=_row_get(row, "line_name"),
+            linked_vm=_row_get(row, "linked_vm"),
+            stored_where=_row_get(row, "stored_where"),
+            iban=_row_get(row, "iban"),
+            bin=_row_get(row, "bin"),
+            login_mobile=_row_get(row, "login_mobile"),
+            login_email=_row_get(row, "login_email"),
+            login_password_encrypted=_row_get(row, "login_password_encrypted"),
+            two_fa_method=_row_get(row, "two_fa_method"),
         )
 
 
@@ -80,16 +138,27 @@ class AccountRepository:
         notes: str | None = None,
         last_updated_at: str | None = None,
         last_checked_at: str | None = None,
+        line_name: str | None = None,
+        linked_vm: str | None = None,
+        stored_where: str | None = None,
+        iban: str | None = None,
+        bin: str | None = None,
+        login_mobile: str | None = None,
+        login_email: str | None = None,
+        login_password_encrypted: str | None = None,
+        two_fa_method: str | None = None,
     ) -> Account:
-        display_name = resolve_display_name(vm_number, company_name, fallback=display_name)
+        display_name = resolve_display_name(vm_number, company_name or line_name, fallback=display_name or line_name)
         cursor = await self.db.execute(
             """
             INSERT INTO accounts (
                 display_name, bank_name, vm_number, company_name, currency,
                 balance_minor, last_updated_at, last_checked_at,
                 login_url, login_username, password_manager_ref, notes,
-                created_at, updated_at, is_archived
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                created_at, updated_at, is_archived,
+                line_name, linked_vm, stored_where, iban, bin,
+                login_mobile, login_email, login_password_encrypted, two_fa_method
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 display_name,
@@ -106,6 +175,15 @@ class AccountRepository:
                 notes,
                 created_at,
                 created_at,
+                line_name,
+                linked_vm,
+                stored_where,
+                iban,
+                bin,
+                login_mobile,
+                login_email,
+                login_password_encrypted,
+                two_fa_method,
             ),
         )
         account_id = cursor.lastrowid
@@ -177,6 +255,7 @@ class AccountRepository:
             "login_username",
             "password_manager_ref",
             "notes",
+            *_NEW_FIELDS,
         }
         unknown = set(fields) - allowed
         if unknown:

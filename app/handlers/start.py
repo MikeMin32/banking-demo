@@ -8,12 +8,15 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state
 from aiogram.types import CallbackQuery, Message
 
+from app.handlers.accounts import render_account
 from app.handlers.common import show_dashboard
+from app.keyboards.accounts import overview_kb
 from app.keyboards.callbacks import AccCB, FormCB, MenuCB
 from app.keyboards.common import back_main_kb
 from app.services.container import Services
 from app.utils.formatting import HELP_TEXT, overview_pages
-from app.utils.telegram import answer_callback, clear_state, safe_edit
+from app.utils.screens import render_screen
+from app.utils.telegram import answer_callback, clear_state
 
 router = Router(name="start")
 
@@ -36,10 +39,13 @@ async def cmd_help(message: Message, state: FSMContext) -> None:
 
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, services: Services, state: FSMContext) -> None:
-    current = await state.get_state()
+    data = await state.get_data()
+    account_id = data.get("account_id")
+    await clear_state(state)
+    if account_id:
+        await render_account(message, services, int(account_id))
+        return
     await show_dashboard(message, services, state)
-    if current is None:
-        await message.answer("Nothing to cancel — you are on the main menu.")
 
 
 @router.callback_query(MenuCB.filter(F.a == "menu"))
@@ -52,12 +58,18 @@ async def cb_menu(query: CallbackQuery, services: Services, state: FSMContext) -
 async def cb_help(query: CallbackQuery, state: FSMContext) -> None:
     await answer_callback(query)
     await clear_state(state)
-    await safe_edit(query, HELP_TEXT, back_main_kb())
+    await query.message.answer(HELP_TEXT, reply_markup=back_main_kb()) if query.message else None
 
 
 @router.callback_query(FormCB.filter(F.o == "cancel"))
 async def cb_form_cancel(query: CallbackQuery, services: Services, state: FSMContext) -> None:
     await answer_callback(query, "Cancelled")
+    data = await state.get_data()
+    account_id = data.get("account_id")
+    await clear_state(state)
+    if account_id:
+        await render_account(query, services, int(account_id))
+        return
     await show_dashboard(query, services, state)
 
 
@@ -67,44 +79,18 @@ async def cb_overview(query: CallbackQuery, services: Services, state: FSMContex
     await clear_state(state)
     reminder = await services.reminders.get_settings()
     snap = await services.dashboard.snapshot(stale_hours=reminder.stale_hours)
-    pages = overview_pages(snap, services.tz, compact=reminder.compact_overview)
-    from app.keyboards.callbacks import AccCB
-    from app.keyboards.common import _nav_row
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-
-    builder = InlineKeyboardBuilder()
-    if len(pages) > 1:
-        from aiogram.types import InlineKeyboardButton
-
-        builder.row(
-            InlineKeyboardButton(text="➡️ Next", callback_data=AccCB(o="ovw", p=1).pack()),
-        )
-    _nav_row(builder, back="menu")
-    await safe_edit(query, pages[0], builder.as_markup())
+    pages = overview_pages(snap, services.tz)
+    await render_screen(query, "balance-summary", pages[0], overview_kb(page=0, total_pages=len(pages)))
 
 
 @router.callback_query(AccCB.filter(F.o == "ovw"))
 async def cb_overview_page(query: CallbackQuery, callback_data: AccCB, services: Services) -> None:
-    from app.keyboards.common import _nav_row
-    from aiogram.types import InlineKeyboardButton
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-
     await answer_callback(query)
-    callback = callback_data
     reminder = await services.reminders.get_settings()
     snap = await services.dashboard.snapshot(stale_hours=reminder.stale_hours)
-    pages = overview_pages(snap, services.tz, compact=reminder.compact_overview)
-    page = min(max(callback.p, 0), len(pages) - 1)
-    builder = InlineKeyboardBuilder()
-    buttons: list[InlineKeyboardButton] = []
-    if page > 0:
-        buttons.append(InlineKeyboardButton(text="⬅️ Prev", callback_data=AccCB(o="ovw", p=page - 1).pack()))
-    if page < len(pages) - 1:
-        buttons.append(InlineKeyboardButton(text="➡️ Next", callback_data=AccCB(o="ovw", p=page + 1).pack()))
-    if buttons:
-        builder.row(*buttons)
-    _nav_row(builder, back="menu")
-    await safe_edit(query, pages[page], builder.as_markup())
+    pages = overview_pages(snap, services.tz)
+    page = min(max(callback_data.p, 0), len(pages) - 1)
+    await render_screen(query, "balance-summary", pages[page], overview_kb(page=page, total_pages=len(pages)))
 
 
 @router.message(StateFilter(default_state), F.text & ~F.text.startswith("/"))

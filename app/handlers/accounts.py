@@ -1,6 +1,8 @@
-"""Account list, wizard, edit, archive, and delete."""
+"""Account list, grouped-template creation, edit, archive, and delete."""
 
 from __future__ import annotations
+
+from html import escape
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -10,6 +12,8 @@ from app.keyboards.accounts import (
     account_edit_kb,
     account_view_kb,
     accounts_list_kb,
+    create_confirm_kb,
+    create_fields_kb,
     currency_kb,
     provider_kb,
 )
@@ -17,41 +21,99 @@ from app.keyboards.callbacks import AccCB, AccFieldCB, FormCB, MenuCB, PickCB
 from app.keyboards.common import PAGE_SIZE, confirm_action_kb, form_kb
 from app.services.accounts import AccountDraft, AccountError, CurrencyChangeNeedsConfirm
 from app.services.container import Services
-from app.services.dashboard import is_stale
 from app.services.money import UI_CURRENCIES
-from app.services.naming import NamingError, clean_company_name, parse_vm_number, resolve_display_name
+from app.services.templates import BANK_TEMPLATE, LOGIN_TEMPLATE, parse_bank_block, parse_login_block
 from app.states.forms import AccountForm
-from app.utils.formatting import account_card, e
-from app.utils.telegram import answer_callback, clear_state, safe_edit
-from app.utils.time import utc_now
+from app.utils.account_context import account_body
+from app.utils.formatting import account_card, e, mask_password
+from app.utils.screens import render_screen
+from app.utils.telegram import answer_callback, clear_state, try_delete
 
 router = Router(name="accounts")
+
+_FIELD_LABELS = {
+    "bank_name": "bank provider",
+    "iban": "IBAN",
+    "bin": "BIN",
+    "currency": "currency",
+    "line_name": "line",
+    "linked_vm": "VM",
+    "stored_where": "stored where",
+    "login_mobile": "mobile number",
+    "login_email": "email",
+    "login_password": "password",
+    "two_fa_method": "2FA method",
+    "vm_number": "VM number",
+    "company_name": "company name",
+    "login_url": "login URL",
+    "login_username": "login username",
+    "password_manager_ref": "password manager item",
+    "notes": "notes",
+}
+
+
+def _draft_from_state(data: dict) -> AccountDraft:
+    return AccountDraft(
+        bank_name=str(data.get("bank_name") or ""),
+        currency=str(data.get("currency") or ""),
+        balance_raw=str(data.get("balance_raw") or "0"),
+        line_name=data.get("line_name"),
+        linked_vm=data.get("linked_vm"),
+        stored_where=data.get("stored_where"),
+        iban=data.get("iban"),
+        bin=data.get("bin"),
+        login_mobile=data.get("login_mobile"),
+        login_email=data.get("login_email"),
+        login_password=data.get("login_password"),
+        two_fa_method=data.get("two_fa_method"),
+    )
+
+
+def _review_text(data: dict) -> str:
+    return (
+        "<b>REVIEW ACCOUNT</b>\n\n"
+        f"Bank: {e(data.get('bank_name'))}\n"
+        f"IBAN: <code>{e(data.get('iban'))}</code>\n"
+        f"BIN: <code>{e(data.get('bin'))}</code>\n"
+        f"Currency: {e(data.get('currency'))}\n"
+        f"Line: {e(data.get('line_name'))}\n"
+        f"VM: {e(data.get('linked_vm'))}\n"
+        f"Stored: {e(data.get('stored_where'))}\n"
+        f"Balance: {e(data.get('balance_raw') or '0')}\n\n"
+        f"Mobile: <code>{e(data.get('login_mobile'))}</code>\n"
+        f"Email: <code>{e(data.get('login_email'))}</code>\n"
+        f"Password: {mask_password(data.get('login_password'))}\n"
+        f"2FA: {e(data.get('two_fa_method'))}"
+    )
 
 
 async def _list_accounts(query: CallbackQuery, services: Services, *, archived: bool, page: int) -> None:
     reminder = await services.reminders.get_settings()
     snap = await services.dashboard.snapshot(stale_hours=reminder.stale_hours)
     items, total = await services.accounts.page(archived=archived, page=page, page_size=PAGE_SIZE)
-    title = "📦 Archived accounts" if archived else "🏦 Accounts"
+    available = {
+        account.id: account.balance_minor - snap.pending_by_account.get(account.id, 0)
+        for account in items
+    }
     if not items and page == 0:
-        text = f"<b>{title}</b>\n\nNo accounts in this list yet."
+        text = "No accounts in this list yet." if not archived else "No archived accounts."
     else:
-        text = f"<b>{title}</b>\nSelect an account to open it."
-    await safe_edit(
+        text = "Select an account:" if not archived else "Archived accounts:"
+    await render_screen(
         query,
+        "accounts",
         text,
-        accounts_list_kb(items, page=page, total=total, archived=archived, stale_ids=snap.stale_ids),
+        accounts_list_kb(items, page=page, total=total, archived=archived, available_by_account=available),
     )
 
 
 async def render_account(target: Message | CallbackQuery, services: Services, account_id: int, *, page: int = 0) -> None:
     account = await services.accounts.get(account_id)
-    reminder = await services.reminders.get_settings()
     projection = await services.withdrawals.projection(account.id)
-    stale = is_stale(account, now=utc_now(), stale_hours=reminder.stale_hours)
-    await safe_edit(
+    await render_screen(
         target,
-        account_card(account, services.tz, pending_minor=projection.pending_minor, stale=stale),
+        "account-details",
+        account_card(account, services.tz, pending_minor=projection.pending_minor),
         account_view_kb(account, from_page=page),
     )
 
@@ -87,204 +149,75 @@ async def cb_view(query: CallbackQuery, callback_data: AccCB, services: Services
 async def cb_add(query: CallbackQuery, state: FSMContext) -> None:
     await answer_callback(query)
     await state.clear()
-    await state.set_state(AccountForm.vm_number)
-    await safe_edit(
+    await state.set_state(AccountForm.bank_block)
+    await render_screen(
         query,
-        "<b>➕ New account</b>\n\nEnter the VM number.\nExample: <code>9</code>",
+        "add-account",
+        "<b>➕ ADD ACCOUNT</b>\n\n"
+        "Copy the template, fill it in, and send it as one message.\n"
+        "Required: Bank Provider, Currency, Line.\n\n"
+        f"<code>{escape(BANK_TEMPLATE)}</code>",
         form_kb(),
     )
 
 
-@router.message(AccountForm.vm_number)
-async def form_vm_number(message: Message, state: FSMContext) -> None:
+@router.message(AccountForm.bank_block)
+async def form_bank_block(message: Message, state: FSMContext) -> None:
     try:
-        number = parse_vm_number(message.text or "")
-    except NamingError as exc:
+        parsed = parse_bank_block(message.text or "")
+    except AccountError as exc:
         await message.answer(str(exc), reply_markup=form_kb())
         return
-    await state.update_data(vm_number=number)
-    await state.set_state(AccountForm.company)
-    await message.answer("Enter the company name.\nExample: <i>LeBon Shoppe</i>", reply_markup=form_kb())
+    await state.update_data(**parsed)
+    await state.set_state(AccountForm.login_block)
+    await message.answer(
+        "<b>LOGIN &amp; SECURITY</b>\n\n"
+        "Copy the template, fill any fields you have, and send it as one message.\n"
+        "Empty fields are allowed.\n\n"
+        f"<code>{escape(LOGIN_TEMPLATE)}</code>",
+        reply_markup=form_kb(),
+    )
 
 
-@router.message(AccountForm.company)
-async def form_company(message: Message, state: FSMContext) -> None:
+@router.message(AccountForm.login_block)
+async def form_login_block(message: Message, state: FSMContext) -> None:
     try:
-        company = clean_company_name(message.text or "")
-    except NamingError as exc:
+        parsed = parse_login_block(message.text or "")
+    except AccountError as exc:
         await message.answer(str(exc), reply_markup=form_kb())
         return
-    await state.update_data(company_name=company)
-    await state.set_state(AccountForm.provider)
-    await message.answer("<b>🏦 Select Banking Provider</b>", reply_markup=provider_kb())
+    if parsed.get("login_password"):
+        await try_delete(message)
+    await state.update_data(**parsed)
+    await _show_review(message, state)
 
 
-@router.callback_query(PickCB.filter(F.k == "prv"), AccountForm.provider)
-async def form_provider_pick(query: CallbackQuery, callback_data: PickCB, state: FSMContext) -> None:
-    await answer_callback(query)
-    if callback_data.v == "OTHER":
-        await state.set_state(AccountForm.provider_other)
-        await safe_edit(query, "Send the banking provider name.", form_kb())
-        return
-    await state.update_data(bank_name=callback_data.v)
-    await _ask_currency(query, state)
-
-
-@router.message(AccountForm.provider_other)
-async def form_provider_other(message: Message, state: FSMContext) -> None:
-    name = " ".join((message.text or "").split())
-    if not name:
-        await message.answer("Banking provider cannot be empty.", reply_markup=form_kb())
-        return
-    await state.update_data(bank_name=name)
-    await state.set_state(AccountForm.currency)
-    await message.answer("<b>Select Account Currency:</b>", reply_markup=currency_kb())
-
-
-async def _ask_currency(target: Message | CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(AccountForm.currency)
-    text = "<b>Select Account Currency:</b>"
-    if isinstance(target, CallbackQuery):
-        await safe_edit(target, text, currency_kb())
-    else:
-        await target.answer(text, reply_markup=currency_kb())
-
-
-@router.callback_query(PickCB.filter(F.k == "cur"), AccountForm.currency)
-async def form_currency_pick(query: CallbackQuery, callback_data: PickCB, state: FSMContext) -> None:
-    await answer_callback(query)
-    if callback_data.v not in UI_CURRENCIES:
-        await query.answer("Please choose USD or EUR.", show_alert=True)
-        return
-    await state.update_data(currency=callback_data.v)
-    await state.set_state(AccountForm.balance)
-    await safe_edit(
-        query,
-        f"Currency set to <b>{callback_data.v}</b>.\nSend the current balance. Zero and negative amounts are allowed.",
-        form_kb(zero=True),
-    )
-
-
-@router.message(AccountForm.currency)
-async def form_currency_text(message: Message) -> None:
-    await message.answer("Please tap 🇺🇸 USD or 🇪🇺 EUR.", reply_markup=currency_kb())
-
-
-@router.callback_query(FormCB.filter(F.o == "zero"), AccountForm.balance)
-async def form_balance_zero(query: CallbackQuery, state: FSMContext) -> None:
-    await answer_callback(query)
-    await state.update_data(balance_raw="0")
-    await _ask_login_url(query, state)
-
-
-@router.message(AccountForm.balance)
-async def form_balance(message: Message, state: FSMContext) -> None:
-    await state.update_data(balance_raw=(message.text or "").strip())
-    await _ask_login_url(message, state)
-
-
-async def _ask_login_url(target: Message | CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(AccountForm.login_url)
-    text = (
-        "Optional: login URL for the bank or platform.\n"
-        "<i>Do not send a password. A link is enough.</i>"
-    )
-    if isinstance(target, CallbackQuery):
-        await safe_edit(target, text, form_kb(skip=True))
-    else:
-        await target.answer(text, reply_markup=form_kb(skip=True))
-
-
-@router.callback_query(FormCB.filter(F.o == "skip"), AccountForm.login_url)
-async def skip_url(query: CallbackQuery, state: FSMContext) -> None:
-    await answer_callback(query)
-    await state.update_data(login_url=None)
-    await state.set_state(AccountForm.login_username)
-    await safe_edit(query, "Optional: login username or email.", form_kb(skip=True))
-
-
-@router.message(AccountForm.login_url)
-async def form_url(message: Message, state: FSMContext) -> None:
-    await state.update_data(login_url=(message.text or "").strip())
-    await state.set_state(AccountForm.login_username)
-    await message.answer("Optional: login username or email.", reply_markup=form_kb(skip=True))
-
-
-@router.callback_query(FormCB.filter(F.o == "skip"), AccountForm.login_username)
-async def skip_username(query: CallbackQuery, state: FSMContext) -> None:
-    await answer_callback(query)
-    await state.update_data(login_username=None)
-    await _ask_vault(query, state)
-
-
-@router.message(AccountForm.login_username)
-async def form_username(message: Message, state: FSMContext) -> None:
-    await state.update_data(login_username=(message.text or "").strip())
-    await _ask_vault(message, state)
-
-
-async def _ask_vault(target: Message | CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(AccountForm.vault)
-    text = (
-        "Optional: password-manager item name or vault URL.\n"
-        "⚠️ <b>Never send a bank password, OTP, or 2FA backup code.</b>"
-    )
-    markup = form_kb(skip=True)
-    if isinstance(target, CallbackQuery):
-        await safe_edit(target, text, markup)
-    else:
-        await target.answer(text, reply_markup=markup)
-
-
-@router.callback_query(FormCB.filter(F.o == "skip"), AccountForm.vault)
-async def skip_vault(query: CallbackQuery, state: FSMContext) -> None:
-    await answer_callback(query)
-    await state.update_data(password_manager_ref=None)
-    await state.set_state(AccountForm.notes)
-    await safe_edit(query, "Optional: notes (authentication hints are fine — not secrets).", form_kb(skip=True))
-
-
-@router.message(AccountForm.vault)
-async def form_vault(message: Message, state: FSMContext) -> None:
-    await state.update_data(password_manager_ref=(message.text or "").strip())
-    await state.set_state(AccountForm.notes)
-    await message.answer("Optional: notes (authentication hints are fine — not secrets).", reply_markup=form_kb(skip=True))
-
-
-@router.callback_query(FormCB.filter(F.o == "skip"), AccountForm.notes)
-async def skip_notes(query: CallbackQuery, state: FSMContext) -> None:
-    await answer_callback(query)
-    await state.update_data(notes=None)
-    await _show_confirm(query, state)
-
-
-@router.message(AccountForm.notes)
-async def form_notes(message: Message, state: FSMContext) -> None:
-    await state.update_data(notes=(message.text or "").strip())
-    await _show_confirm(message, state)
-
-
-async def _show_confirm(target: Message | CallbackQuery, state: FSMContext) -> None:
+async def _show_review(target: Message | CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     await state.set_state(AccountForm.confirm)
-    name = resolve_display_name(data.get("vm_number"), data.get("company_name"))
-    text = (
-        "<b>Create this account?</b>\n\n"
-        f"🏦 {e(name)}\n"
-        f"Banking: {e(data.get('bank_name'))}\n"
-        f"Currency: {e(data.get('currency'))}\n"
-        f"Balance: {e(data.get('balance_raw'))}"
-    )
-    markup = confirm_action_kb(
-        yes_data=FormCB(o="ok").pack(),
-        no_data=FormCB(o="cancel").pack(),
-        yes_text="✅ Create account",
-        no_text="✖️ Cancel",
-    )
     if isinstance(target, CallbackQuery):
-        await safe_edit(target, text, markup)
+        await render_screen(target, "add-account", _review_text(data), create_confirm_kb())
     else:
-        await target.answer(text, reply_markup=markup)
+        await target.answer(_review_text(data), reply_markup=create_confirm_kb())
+
+
+@router.callback_query(FormCB.filter(F.o == "review"), AccountForm.confirm)
+@router.callback_query(FormCB.filter(F.o == "review"), AccountForm.edit_value)
+async def cb_review(query: CallbackQuery, state: FSMContext) -> None:
+    await answer_callback(query)
+    await _show_review(query, state)
+
+
+@router.callback_query(FormCB.filter(F.o == "edit"), AccountForm.confirm)
+async def cb_edit_draft(query: CallbackQuery, state: FSMContext) -> None:
+    await answer_callback(query)
+    await state.set_state(AccountForm.edit_value)
+    await render_screen(
+        query,
+        "add-account",
+        "<b>✏️ EDIT INFORMATION</b>\nChoose a field to change.",
+        create_fields_kb(),
+    )
 
 
 @router.callback_query(FormCB.filter(F.o == "ok"), AccountForm.confirm)
@@ -293,21 +226,9 @@ async def form_create(query: CallbackQuery, services: Services, state: FSMContex
     data = await state.get_data()
     await state.clear()
     try:
-        account = await services.accounts.create(
-            AccountDraft(
-                vm_number=data.get("vm_number") or 0,
-                company_name=str(data.get("company_name") or ""),
-                bank_name=str(data.get("bank_name") or ""),
-                currency=str(data.get("currency") or ""),
-                balance_raw=str(data.get("balance_raw") or "0"),
-                login_url=data.get("login_url"),
-                login_username=data.get("login_username"),
-                password_manager_ref=data.get("password_manager_ref"),
-                notes=data.get("notes"),
-            )
-        )
+        account = await services.accounts.create(_draft_from_state(data))
     except AccountError as exc:
-        await safe_edit(query, f"{exc}\n\nPlease start again from Add Account.", form_kb())
+        await render_screen(query, "add-account", f"{exc}\n\nPlease start again from Add Account.", form_kb())
         return
     await render_account(query, services, account.id)
 
@@ -317,53 +238,86 @@ async def cb_edit_menu(query: CallbackQuery, callback_data: AccCB, services: Ser
     await answer_callback(query)
     await clear_state(state)
     account = await services.accounts.get(callback_data.i)
-    await safe_edit(
-        query,
-        f"<b>✏️ Edit {e(account.display_name)}</b>\nChoose a field to change.",
-        account_edit_kb(account.id),
+    _, text = await account_body(
+        services,
+        account.id,
+        "Change a field, or use the actions below.",
     )
+    await render_screen(query, "account-details", text, account_edit_kb(account.id))
 
 
 @router.callback_query(AccFieldCB.filter())
 async def cb_edit_field(query: CallbackQuery, callback_data: AccFieldCB, services: Services, state: FSMContext) -> None:
     await answer_callback(query)
+    field = callback_data.f
+    if callback_data.i == 0:
+        data = await state.get_data()
+        current = data.get("login_password") if field == "login_password" else data.get(field)
+        await state.set_state(AccountForm.edit_value)
+        await state.update_data(account_id=0, field=field, return_to="draft")
+        await _prompt_field(query, field, current, account_id=None, services=None)
+        return
+
     account = await services.accounts.get(callback_data.i)
-    labels = {
-        "vm_number": "VM number",
-        "company_name": "company name",
-        "bank_name": "banking provider",
-        "currency": "currency",
-        "login_url": "login URL",
-        "login_username": "login username / email",
-        "password_manager_ref": "password manager item / URL",
-        "notes": "notes",
-    }
-    required = {"vm_number", "company_name", "bank_name", "currency"}
-    current = getattr(account, callback_data.f)
+    current = "••••••••" if field == "login_password" and account.has_password else getattr(account, field, None)
+    previous = await state.get_data()
+    return_to = previous.get("return_to") or "account"
     await state.set_state(AccountForm.edit_value)
-    await state.update_data(account_id=account.id, field=callback_data.f)
-    extra = ""
-    if callback_data.f in {"login_url", "login_username", "password_manager_ref"}:
-        extra = "\n⚠️ Do not send a bank password."
-    if callback_data.f == "bank_name":
-        await safe_edit(
-            query,
-            f"Select a banking provider.\nCurrent: <code>{e(current)}</code>",
-            provider_kb(),
+    await state.update_data(account_id=account.id, field=field, return_to=return_to)
+    await _prompt_field(query, field, current, account_id=account.id, services=services)
+
+
+async def _prompt_field(
+    target: CallbackQuery,
+    field: str,
+    current: object,
+    *,
+    account_id: int | None,
+    services: Services | None = None,
+) -> None:
+    if field == "bank_name":
+        body = f"<b>✏️ EDIT FIELD</b>\nSelect a banking provider.\nCurrent: <code>{e(current)}</code>"
+    elif field == "currency":
+        body = (
+            f"<b>✏️ EDIT FIELD</b>\nSelect currency.\nCurrent: <code>{e(current)}</code>\n"
+            "USD and EUR stay separate. This does not convert the balance."
+        )
+    else:
+        extra = ""
+        if field == "login_password":
+            extra = "\nThe incoming message will be deleted when possible."
+        body = (
+            f"<b>✏️ EDIT FIELD</b>\n"
+            f"Send a new {_FIELD_LABELS.get(field, field)}.\n"
+            f"Current: <code>{e(current)}</code>{extra}"
+        )
+    if account_id is not None and services is not None:
+        _, text = await account_body(services, account_id, body)
+    else:
+        text = body
+    if field == "bank_name":
+        await render_screen(
+            target,
+            "add-account" if account_id is None else "account-details",
+            text,
+            provider_kb(account_id=account_id),
         )
         return
-    if callback_data.f == "currency":
-        await safe_edit(
-            query,
-            f"<b>Select New Currency:</b>\nCurrent: <code>{e(current)}</code>\n"
-            "USD and EUR totals stay separate. Changing currency does not convert the balance.",
-            currency_kb(account_id=account.id),
+    if field == "currency":
+        await render_screen(
+            target,
+            "add-account" if account_id is None else "account-details",
+            text,
+            currency_kb(account_id=account_id),
         )
         return
-    await safe_edit(
-        query,
-        f"Send a new {labels[callback_data.f]}.\nCurrent: <code>{e(current)}</code>{extra}",
-        form_kb(skip=callback_data.f not in required, keep=True, back=f"acc:{account.id}"),
+    skip = field not in {"bank_name", "currency", "line_name"}
+    back = "menu" if account_id is None else f"acc:{account_id}"
+    await render_screen(
+        target,
+        "add-account" if account_id is None else "account-details",
+        text,
+        form_kb(skip=skip, keep=True, back=back),
     )
 
 
@@ -373,13 +327,30 @@ async def _currency_activity(services: Services, account_id: int) -> tuple[int, 
     return history_count, withdrawal_count
 
 
+async def _after_account_edit(target: Message | CallbackQuery, services: Services, state: FSMContext, account_id: int) -> None:
+    data = await state.get_data()
+    return_to = data.get("return_to")
+    await clear_state(state)
+    if return_to == "login":
+        from app.handlers.login import render_login
+
+        await render_login(target, services, account_id)
+        return
+    await render_account(target, services, account_id)
+
+
 @router.callback_query(PickCB.filter(F.k == "cur"), AccountForm.edit_value)
 async def edit_currency_pick(query: CallbackQuery, callback_data: PickCB, services: Services, state: FSMContext) -> None:
     data = await state.get_data()
-    account_id = int(data["account_id"])
     if callback_data.v not in UI_CURRENCIES:
         await query.answer("Please choose USD or EUR.", show_alert=True)
         return
+    if int(data.get("account_id") or 0) == 0:
+        await answer_callback(query)
+        await state.update_data(currency=callback_data.v)
+        await _show_review(query, state)
+        return
+    account_id = int(data["account_id"])
     history_count, withdrawal_count = await _currency_activity(services, account_id)
     try:
         account = await services.accounts.change_currency(
@@ -391,11 +362,17 @@ async def edit_currency_pick(query: CallbackQuery, callback_data: PickCB, servic
     except CurrencyChangeNeedsConfirm:
         await answer_callback(query)
         await state.update_data(pending_currency=callback_data.v)
-        await safe_edit(
-            query,
+        _, text = await account_body(
+            services,
+            account_id,
+            f"<b>✏️ CHANGE CURRENCY</b>\n\n"
             f"Change the currency label to <b>{callback_data.v}</b>?\n\n"
-            "This does <b>not</b> convert the stored balance or history. "
-            "The same numbers will be shown with the new currency code.",
+            "This does <b>not</b> convert the stored balance or history.",
+        )
+        await render_screen(
+            query,
+            "account-details",
+            text,
             confirm_action_kb(
                 yes_data=FormCB(o="cury").pack(),
                 no_data=AccCB(o="edt", i=account_id).pack(),
@@ -407,8 +384,7 @@ async def edit_currency_pick(query: CallbackQuery, callback_data: PickCB, servic
         await query.answer(str(exc), show_alert=True)
         return
     await answer_callback(query, f"Currency: {account.currency}")
-    await clear_state(state)
-    await render_account(query, services, account.id)
+    await _after_account_edit(query, services, state, account.id)
 
 
 @router.callback_query(FormCB.filter(F.o == "cury"), AccountForm.edit_value)
@@ -429,8 +405,7 @@ async def edit_currency_confirm(query: CallbackQuery, services: Services, state:
         await query.answer(str(exc), show_alert=True)
         return
     await answer_callback(query, f"Currency: {account.currency}")
-    await clear_state(state)
-    await render_account(query, services, account.id)
+    await _after_account_edit(query, services, state, account.id)
 
 
 @router.callback_query(PickCB.filter(F.k == "prv"), AccountForm.edit_value)
@@ -438,60 +413,92 @@ async def edit_provider_pick(query: CallbackQuery, callback_data: PickCB, servic
     data = await state.get_data()
     if callback_data.v == "OTHER":
         await answer_callback(query)
-        await safe_edit(query, "Send the banking provider name.", form_kb(keep=True, back=f"acc:{data['account_id']}"))
+        await render_screen(query, "add-account", "Send the banking provider name.", form_kb(keep=True))
         return
     await answer_callback(query)
+    if int(data.get("account_id") or 0) == 0:
+        await state.update_data(bank_name=callback_data.v)
+        await _show_review(query, state)
+        return
     account = await services.accounts.update(int(data["account_id"]), bank_name=callback_data.v)
-    await clear_state(state)
-    await render_account(query, services, account.id)
+    await _after_account_edit(query, services, state, account.id)
 
 
 @router.callback_query(FormCB.filter(F.o == "keep"), AccountForm.edit_value)
 async def edit_keep(query: CallbackQuery, services: Services, state: FSMContext) -> None:
     await answer_callback(query, "Unchanged")
     data = await state.get_data()
-    await clear_state(state)
-    await render_account(query, services, int(data["account_id"]))
+    if int(data.get("account_id") or 0) == 0:
+        await _show_review(query, state)
+        return
+    await _after_account_edit(query, services, state, int(data["account_id"]))
 
 
 @router.callback_query(FormCB.filter(F.o == "skip"), AccountForm.edit_value)
 async def edit_clear(query: CallbackQuery, services: Services, state: FSMContext) -> None:
     await answer_callback(query)
     data = await state.get_data()
-    field = data["field"]
-    if field in {"vm_number", "company_name", "bank_name", "currency"}:
+    field = str(data["field"])
+    if int(data.get("account_id") or 0) == 0:
+        if field in {"bank_name", "currency", "line_name"}:
+            await query.answer("That field is required.", show_alert=True)
+            return
+        await state.update_data(**{field: None})
+        await _show_review(query, state)
+        return
+    if field in {"bank_name", "currency", "line_name"}:
         await query.answer("That field is required.", show_alert=True)
         return
     account = await services.accounts.update(int(data["account_id"]), **{field: None})
-    await clear_state(state)
-    await render_account(query, services, account.id)
+    await _after_account_edit(query, services, state, account.id)
 
 
 @router.message(AccountForm.edit_value)
 async def edit_value(message: Message, services: Services, state: FSMContext) -> None:
     data = await state.get_data()
-    if data.get("field") == "currency":
-        await message.answer("Please tap 🇺🇸 USD or 🇪🇺 EUR.", reply_markup=currency_kb(account_id=int(data["account_id"])))
+    field = str(data.get("field") or "")
+    if field == "currency":
+        await message.answer("Please tap 🇺🇸 USD or 🇪🇺 EUR.", reply_markup=currency_kb(account_id=int(data.get("account_id") or 0) or None))
+        return
+    value = (message.text or "").strip()
+    if field == "login_password":
+        await try_delete(message)
+    if int(data.get("account_id") or 0) == 0:
+        await state.update_data(**{field: value})
+        await _show_review(message, state)
         return
     try:
-        account = await services.accounts.update(int(data["account_id"]), **{data["field"]: message.text})
+        account = await services.accounts.update(int(data["account_id"]), **{field: value})
     except AccountError as exc:
         await message.answer(str(exc), reply_markup=form_kb(keep=True, back=f"acc:{data['account_id']}"))
         return
-    await clear_state(state)
-    await render_account(message, services, account.id)
+    await _after_account_edit(message, services, state, account.id)
 
 
 @router.callback_query(AccCB.filter(F.o == "arq"))
-async def cb_archive_ask(query: CallbackQuery, callback_data: AccCB) -> None:
+async def cb_archive_ask(query: CallbackQuery, callback_data: AccCB, services: Services) -> None:
     await answer_callback(query)
-    await safe_edit(
+    account = await services.accounts.get(callback_data.i)
+    if account.is_archived:
+        body = "<b>📦 RESTORE ACCOUNT</b>\n\nRestore this account to the active list?"
+        yes = AccCB(o="uar", i=callback_data.i).pack()
+        yes_text = "✅ Restore"
+    else:
+        body = (
+            "<b>📦 ARCHIVE ACCOUNT</b>\n\n"
+            "Archive this account? It will drop out of active totals but stay in Archived Accounts."
+        )
+        yes = AccCB(o="arc", i=callback_data.i).pack()
+        yes_text = "📦 Archive"
+    _, text = await account_body(services, account.id, body)
+    await render_screen(
         query,
-        "Archive this account? It will drop out of active totals but stay in Archived Accounts.",
+        "account-details",
+        text,
         confirm_action_kb(
-            yes_data=AccCB(o="arc", i=callback_data.i).pack(),
-            no_data=AccCB(o="view", i=callback_data.i).pack(),
-            yes_text="📦 Archive",
+            yes_data=yes,
+            no_data=AccCB(o="edt", i=callback_data.i).pack(),
+            yes_text=yes_text,
         ),
     )
 
@@ -514,14 +521,21 @@ async def cb_unarchive(query: CallbackQuery, callback_data: AccCB, services: Ser
 async def cb_delete_ask(query: CallbackQuery, callback_data: AccCB, services: Services) -> None:
     await answer_callback(query)
     account = await services.accounts.get(callback_data.i)
-    await safe_edit(
-        query,
-        f"Delete <b>{e(account.display_name)}</b> permanently?\n"
-        "Balance history, deposit details, and withdrawals for this account will also be removed.\n"
+    _, text = await account_body(
+        services,
+        account.id,
+        f"<b>🗑️ DELETE ACCOUNT</b>\n\n"
+        f"Delete <b>{e(account.line_label)}</b> permanently?\n"
+        "Balance history, charges, and top-ups for this account will also be removed.\n"
         "This cannot be undone.",
+    )
+    await render_screen(
+        query,
+        "account-details",
+        text,
         confirm_action_kb(
             yes_data=AccCB(o="dly", i=callback_data.i).pack(),
-            no_data=AccCB(o="view", i=callback_data.i).pack(),
+            no_data=AccCB(o="edt", i=callback_data.i).pack(),
             yes_text="🗑️ Delete forever",
         ),
     )

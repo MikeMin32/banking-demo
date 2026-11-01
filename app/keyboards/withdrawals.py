@@ -1,4 +1,4 @@
-"""Withdrawal list and detail keyboards."""
+"""Expected-charge list and detail keyboards."""
 
 from __future__ import annotations
 
@@ -23,10 +23,9 @@ def withdrawals_list_kb(
     builder = InlineKeyboardBuilder()
     for withdrawal, account in items:
         icon = {"pending": "⏳", "completed": "✅", "cancelled": "🚫"}.get(withdrawal.status, "•")
-        amount = format_amount(withdrawal.amount_minor, account.currency)
-        label = f"{icon} {account.display_name} · {amount}"[:64]
+        amount = format_amount(withdrawal.amount_minor, account.currency, with_symbol=True)
         builder.button(
-            text=label,
+            text=f"{icon} {amount}"[:64],
             callback_data=WdCB(o="view", i=withdrawal.id, a=account_id, s=status, p=page).pack(),
         )
     builder.adjust(1)
@@ -38,15 +37,18 @@ def withdrawals_list_kb(
         factory=lambda p: WdCB(o="list" if not account_id else "alist", a=account_id, s=status, p=p).pack(),
     )
     builder.row(
-        InlineKeyboardButton(text="⏳ Pending", callback_data=WdCB(o="list" if not account_id else "alist", a=account_id, s="pending").pack()),
-        InlineKeyboardButton(text="✅ Done", callback_data=WdCB(o="list" if not account_id else "alist", a=account_id, s="completed").pack()),
-        InlineKeyboardButton(text="🚫 Cancelled", callback_data=WdCB(o="list" if not account_id else "alist", a=account_id, s="cancelled").pack()),
+        InlineKeyboardButton(text="⏳ Pending", callback_data=WdCB(o="alist" if account_id else "list", a=account_id, s="pending").pack()),
+        InlineKeyboardButton(text="✅ Done", callback_data=WdCB(o="alist" if account_id else "list", a=account_id, s="completed").pack()),
+        InlineKeyboardButton(text="🚫 Cancelled", callback_data=WdCB(o="alist" if account_id else "list", a=account_id, s="cancelled").pack()),
     )
-    builder.row(InlineKeyboardButton(text="➕ Add withdrawal", callback_data=WdCB(o="add", a=account_id).pack()))
+    builder.row(InlineKeyboardButton(text="➕ Add Expected Charge", callback_data=WdCB(o="add", a=account_id).pack()))
     if account_id:
-        _nav_row(builder, back=f"acc:{account_id}")
+        builder.row(
+            InlineKeyboardButton(text="⬅️ Back", callback_data=AccCB(o="txn", i=account_id).pack()),
+            InlineKeyboardButton(text="🏠 Home", callback_data=MenuCB(a="menu").pack()),
+        )
     else:
-        _nav_row(builder, back="menu")
+        _nav_row(builder, back="accounts")
     return builder.as_markup()
 
 
@@ -54,20 +56,14 @@ def withdrawal_view_kb(withdrawal: Withdrawal, *, status: str, account_id: int, 
     builder = InlineKeyboardBuilder()
     if withdrawal.status == "pending":
         builder.button(text="✅ Mark completed", callback_data=WdCB(o="done", i=withdrawal.id, a=account_id, s=status).pack())
-        builder.button(text="🚫 Cancel plan", callback_data=WdCB(o="cncl", i=withdrawal.id, a=account_id, s=status).pack())
+        builder.button(text="🚫 Cancel charge", callback_data=WdCB(o="cncl", i=withdrawal.id, a=account_id, s=status).pack())
         builder.button(text="✏️ Amount", callback_data=WdCB(o="eamt", i=withdrawal.id, a=account_id, s=status).pack())
-        builder.button(text="📅 Date", callback_data=WdCB(o="edat", i=withdrawal.id, a=account_id, s=status).pack())
-        builder.button(text="📝 Description", callback_data=WdCB(o="edsc", i=withdrawal.id, a=account_id, s=status).pack())
-        builder.adjust(2, 1, 2)
+        builder.adjust(2, 1)
     builder.button(text="🗑️ Delete", callback_data=WdCB(o="dlq", i=withdrawal.id, a=account_id, s=status).pack())
-    builder.adjust(2, 1, 2, 1)
     list_op = "alist" if account_id else "list"
     builder.row(
-        InlineKeyboardButton(
-            text="⬅️ Back",
-            callback_data=WdCB(o=list_op, a=account_id, s=status, p=page).pack(),
-        ),
-        InlineKeyboardButton(text="🏠 Main Menu", callback_data=MenuCB(a="menu").pack()),
+        InlineKeyboardButton(text="⬅️ Back", callback_data=WdCB(o=list_op, a=account_id, s=status, p=page).pack()),
+        InlineKeyboardButton(text="🏠 Home", callback_data=MenuCB(a="menu").pack()),
     )
     return builder.as_markup()
 
@@ -75,7 +71,7 @@ def withdrawal_view_kb(withdrawal: Withdrawal, *, status: str, account_id: int, 
 def pick_account_for_wd_kb(accounts: list[Account], *, page: int, total: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for account in accounts:
-        label = f"{account.display_name} · {account.currency}"[:64]
+        label = f"{account.line_label} · {account.currency}"[:64]
         builder.button(text=label, callback_data=WdCB(o="asel", a=account.id).pack())
     builder.adjust(1)
     pagination_row(
@@ -85,8 +81,5 @@ def pick_account_for_wd_kb(accounts: list[Account], *, page: int, total: int) ->
         page_size=PAGE_SIZE,
         factory=lambda p: WdCB(o="add", p=p).pack(),
     )
-    builder.row(
-        InlineKeyboardButton(text="⬅️ Back", callback_data=WdCB(o="list", s="pending").pack()),
-        InlineKeyboardButton(text="🏠 Main Menu", callback_data=MenuCB(a="menu").pack()),
-    )
+    _nav_row(builder, back="accounts")
     return builder.as_markup()

@@ -46,3 +46,10 @@ class DepCB(CallbackData, prefix="d"):
 class PickCB(CallbackData, prefix="p"):
     k: str
     v: str
+
+
+class TuCB(CallbackData, prefix="t"):
+    o: str
+    i: int = 0
+    a: int = 0
+    p: int = 0

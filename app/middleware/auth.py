@@ -56,6 +56,7 @@ class AuthMiddleware(BaseMiddleware):
 
         data["services"] = self.services
         data["is_owner"] = self.services.auth.is_owner(user_id)
+        data["can_view_credentials"] = self.services.auth.can_view_credentials(user_id)
         return await handler(event, data)
 
 

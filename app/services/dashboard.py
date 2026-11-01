@@ -21,6 +21,10 @@ class CurrencyBucket:
     def projected_minor(self) -> int:
         return self.balance_minor - self.pending_minor
 
+    @property
+    def available_minor(self) -> int:
+        return self.projected_minor
+
 
 @dataclass(slots=True)
 class DashboardSnapshot:
@@ -88,5 +92,5 @@ def format_currency_lines(buckets: dict[str, CurrencyBucket], field_name: str) -
     lines = []
     for currency, bucket in buckets.items():
         minor = getattr(bucket, field_name)
-        lines.append(f"• {format_amount(minor, currency)}")
+        lines.append(f"• {format_amount(minor, currency, with_symbol=True)}")
     return "\n".join(lines)

@@ -52,6 +52,17 @@ async def test_local_time_reached() -> None:
     assert dummy.local_time_reached("09:00", now=later) is True
 
 
+async def test_reminder_toggle_only(services: Services) -> None:
+    current = await services.reminders.get_settings()
+    assert current.enabled
+    updated = await services.reminders.set_enabled(False)
+    assert updated.enabled is False
+    loaded = await services.reminders.get_settings()
+    assert loaded.enabled is False
+    restored = await services.reminders.set_enabled(True)
+    assert restored.enabled is True
+
+
 async def test_settings_persist(services: Services) -> None:
     await services.reminders.set_time("18:30")
     await services.reminders.set_stale_hours(48)

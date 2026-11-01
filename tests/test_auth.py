@@ -18,6 +18,8 @@ def test_owner_and_allow_list(settings: Settings) -> None:
     assert not auth.is_authorized(None)
     assert auth.is_owner(1001)
     assert not auth.is_owner(1002)
+    assert auth.can_view_credentials(1001)
+    assert not auth.can_view_credentials(1002)
 
 
 def test_private_chat_required(settings: Settings) -> None:

@@ -6,17 +6,8 @@ from aiogram.fsm.state import State, StatesGroup
 
 
 class AccountForm(StatesGroup):
-    vm_number = State()
-    company = State()
-    provider = State()
-    provider_other = State()
-    currency = State()
-    currency_other = State()
-    balance = State()
-    login_url = State()
-    login_username = State()
-    vault = State()
-    notes = State()
+    bank_block = State()
+    login_block = State()
     confirm = State()
     edit_value = State()
 
@@ -25,11 +16,17 @@ class BalanceForm(StatesGroup):
     amount = State()
 
 
-class WithdrawalForm(StatesGroup):
+class ChargeForm(StatesGroup):
     amount = State()
-    date = State()
-    description = State()
     edit_value = State()
+
+
+class TopUpForm(StatesGroup):
+    amount = State()
+
+
+class LoginForm(StatesGroup):
+    value = State()
 
 
 class DepositForm(StatesGroup):
@@ -39,3 +36,9 @@ class DepositForm(StatesGroup):
 class SettingsForm(StatesGroup):
     reminder_time = State()
     stale_hours = State()
+
+
+# Backward-compatible aliases used by leftover tests/imports.
+class WithdrawalForm(ChargeForm):
+    date = State()
+    description = State()

@@ -42,6 +42,15 @@ async def send_document(message: Message, filename: str, payload: bytes, caption
     )
 
 
+async def try_delete(message: Message | None) -> None:
+    if message is None:
+        return
+    try:
+        await message.delete()
+    except TelegramBadRequest:
+        pass
+
+
 async def clear_state(state: FSMContext | None) -> None:
     if state is not None:
         await state.clear()

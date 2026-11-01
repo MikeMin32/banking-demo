@@ -1,4 +1,4 @@
-"""Expected withdrawals are tracking records only — they never change stored balances."""
+"""Expected charges. Pending amounts reserve available balance; completion deducts recorded balance once."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from app.database.repositories.accounts import Account, AccountRepository
+from app.database.repositories.balances import BalanceRepository
 from app.database.repositories.withdrawals import Withdrawal, WithdrawalRepository
 from app.services.accounts import AccountError
 from app.services.money import MoneyError, parse_to_minor
@@ -23,13 +24,24 @@ class WithdrawalError(ValueError):
 class Projection:
     account: Account
     pending_minor: int
-    projected_minor: int
+    recorded_minor: int
+    available_minor: int
+
+    @property
+    def projected_minor(self) -> int:
+        return self.available_minor
 
 
 class WithdrawalService:
-    def __init__(self, accounts: AccountRepository, withdrawals: WithdrawalRepository) -> None:
+    def __init__(
+        self,
+        accounts: AccountRepository,
+        withdrawals: WithdrawalRepository,
+        history: BalanceRepository | None = None,
+    ) -> None:
         self.accounts = accounts
         self.withdrawals = withdrawals
+        self.history = history
 
     async def _account(self, account_id: int) -> Account:
         account = await self.accounts.get(account_id)
@@ -51,7 +63,7 @@ class WithdrawalService:
         except MoneyError as exc:
             raise WithdrawalError(str(exc)) from exc
         if amount_minor <= 0:
-            raise WithdrawalError("Withdrawal amount must be greater than zero.")
+            raise WithdrawalError("Charge amount must be greater than zero.")
         date_value = expected_date.isoformat() if isinstance(expected_date, date) else expected_date
         desc = _clean_description(description)
         return await self.withdrawals.create(
@@ -65,7 +77,7 @@ class WithdrawalService:
     async def get(self, withdrawal_id: int) -> Withdrawal:
         withdrawal = await self.withdrawals.get(withdrawal_id)
         if withdrawal is None:
-            raise WithdrawalError("That withdrawal no longer exists.")
+            raise WithdrawalError("That charge no longer exists.")
         return withdrawal
 
     async def page(
@@ -89,7 +101,8 @@ class WithdrawalService:
         return Projection(
             account=account,
             pending_minor=pending,
-            projected_minor=account.balance_minor - pending,
+            recorded_minor=account.balance_minor,
+            available_minor=account.balance_minor - pending,
         )
 
     async def projections_by_account(self) -> dict[int, int]:
@@ -97,19 +110,43 @@ class WithdrawalService:
 
     async def complete(self, withdrawal_id: int) -> Withdrawal:
         withdrawal = await self.get(withdrawal_id)
+        if withdrawal.status == "completed":
+            return withdrawal
         if withdrawal.status != "pending":
-            raise WithdrawalError("Only pending withdrawals can be marked completed.")
+            raise WithdrawalError("Only pending charges can be marked completed.")
         now = utc_now_iso()
-        updated = await self.withdrawals.update_fields(
-            withdrawal.id, {"status": "completed", "completed_at": now}, now
-        )
+        claimed = await self.withdrawals.mark_completed_if_pending(withdrawal.id, now)
+        if claimed == 0:
+            return await self.get(withdrawal_id)
+        if not withdrawal.applied_to_balance:
+            applied = await self.withdrawals.mark_applied_if_needed(withdrawal.id, now)
+            if applied:
+                account = await self._account(withdrawal.account_id)
+                new_minor = account.balance_minor - withdrawal.amount_minor
+                if self.history is not None:
+                    await self.history.add(
+                        account_id=account.id,
+                        old_balance_minor=account.balance_minor,
+                        new_balance_minor=new_minor,
+                        recorded_at=now,
+                    )
+                await self.accounts.set_balance(
+                    account.id,
+                    new_minor,
+                    last_updated_at=now,
+                    last_checked_at=account.last_checked_at or now,
+                    updated_at=now,
+                )
+        updated = await self.get(withdrawal_id)
         assert updated is not None
         return updated
 
     async def cancel(self, withdrawal_id: int) -> Withdrawal:
         withdrawal = await self.get(withdrawal_id)
+        if withdrawal.status == "cancelled":
+            return withdrawal
         if withdrawal.status != "pending":
-            raise WithdrawalError("Only pending withdrawals can be cancelled.")
+            raise WithdrawalError("Only pending charges can be cancelled.")
         now = utc_now_iso()
         updated = await self.withdrawals.update_fields(
             withdrawal.id, {"status": "cancelled", "completed_at": now}, now
@@ -126,6 +163,8 @@ class WithdrawalService:
         description: str | None = ...,
     ) -> Withdrawal:
         withdrawal = await self.get(withdrawal_id)
+        if withdrawal.status != "pending" and raw_amount is not None:
+            raise WithdrawalError("Only pending charges can be edited.")
         account = await self._account(withdrawal.account_id)
         fields: dict[str, object] = {}
         if raw_amount is not None:
@@ -134,7 +173,7 @@ class WithdrawalService:
             except MoneyError as exc:
                 raise WithdrawalError(str(exc)) from exc
             if amount_minor <= 0:
-                raise WithdrawalError("Withdrawal amount must be greater than zero.")
+                raise WithdrawalError("Charge amount must be greater than zero.")
             fields["amount_minor"] = amount_minor
         if expected_date is not ...:
             if expected_date is None or expected_date == "":
@@ -150,8 +189,8 @@ class WithdrawalService:
         return updated
 
     async def delete(self, withdrawal_id: int) -> None:
-        await self.get(withdrawal_id)
-        await self.withdrawals.delete(withdrawal_id)
+        withdrawal = await self.get(withdrawal_id)
+        await self.withdrawals.delete(withdrawal.id)
 
 
 def _clean_description(value: str | None) -> str | None:

@@ -1,14 +1,16 @@
 # Virtual Bank Account Manager
 
-A private Telegram bot for tracking virtual bank accounts, manual balances, planned withdrawals, deposit instructions, and password-manager login references.
+A private Telegram bot for tracking virtual bank accounts, recorded bank balances, and expected charges.
 
 This is an **account tracking system**, not a bank. You type balances in by hand. The bot never logs into a bank, never scrapes a website, never talks to a banking API, and never sends a real transfer or withdrawal.
 
-Creating or completing an expected withdrawal **does not** change the stored balance. Projected remaining is a display-only figure:
+**Available balance** is what you see throughout the bot:
 
-`projected remaining = current balance − pending expected withdrawals`
+`available = recorded bank balance − pending expected charges`
 
-Currencies are **never** added together. USD, EUR, GBP and every other code stay in separate totals.
+Completing a charge deducts that amount from the recorded bank balance **once**. Cancelling a pending charge only releases the reservation. Legacy completed charges from before this accounting change are kept as history and are not deducted again.
+
+Currencies are **never** added together. USD and EUR stay in separate totals.
 
 ## Technology stack
 
@@ -25,16 +27,15 @@ Money is stored as integer minor units (cents, etc.) and calculated with `Decima
 ## Features
 
 - Owner + optional allow-list authorization; private-chat only
-- Dashboard with per-currency totals and projected remaining
-- Account wizard using `VM {number} - {company}` names (Airwallex, N26, or a custom provider)
-- Edit, archive, and delete accounts (with confirmation)
-- Balance update, confirm-checked (timestamp only), history
-- Expected withdrawals (pending / completed / cancelled)
-- Deposit details with copy-friendly formatting
-- Login URL / username / password-manager reference (never a bank password)
-- Daily stale-balance reminders
-- CSV exports that omit secrets and banking identifiers
-- Online SQLite backup
+- Four-button dashboard: Bank Accounts, Balance Summary, Add Account, Settings
+- Account list buttons show line, provider, storage location, and available balance
+- Compact account details with recorded bank balance, pending charges, and available balance
+- Two-step copy-and-paste account creation (bank block, then login block, then review)
+- Encrypted login details (mobile, email, password, 2FA). Only the owner can reveal passwords
+- Expected charges: amount only; pending / completed / cancelled
+- Daily stale-balance reminders (Settings only toggles them on or off)
+- Page banners for major screens (`assets/banners/*.png`)
+- Online SQLite backup via owner-only `/backup`
 
 ## Local installation
 
@@ -78,6 +79,8 @@ DATABASE_PATH=./data/bank_manager.db
 TIMEZONE=Europe/Kyiv
 REMINDER_TIME=09:00
 LOG_LEVEL=INFO
+DEV_ALLOW_ANY_USER=false
+ACCOUNT_CREDENTIALS_KEY=
 ```
 
 | Variable | Required | Meaning |
@@ -87,10 +90,14 @@ LOG_LEVEL=INFO
 | `ALLOWED_USER_IDS` | no | Extra numeric IDs, comma-separated |
 | `DATABASE_PATH` | no | SQLite file path (created on first start) |
 | `TIMEZONE` | no | IANA timezone used for display and reminders |
-| `REMINDER_TIME` | no | Default daily reminder time (`HH:MM`). Users can change this in Settings |
+| `REMINDER_TIME` | no | Default daily reminder time (`HH:MM`) used by the scheduler |
 | `LOG_LEVEL` | no | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `DEV_ALLOW_ANY_USER` | no | Local testing only. Does **not** grant password or backup access |
+| `ACCOUNT_CREDENTIALS_KEY` | yes, to store passwords | Fernet key. Generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 
 `ALLOWED_USER_IDS` may be empty. The owner is always authorized.
+
+If `ACCOUNT_CREDENTIALS_KEY` is missing, accounts can still be created without a password. Saving a password fails until the key is set. Losing the key makes stored passwords unrecoverable; balances and other fields remain readable.
 
 ### 5. Start the bot
 
@@ -152,17 +159,80 @@ Required `.env` values on the VPS:
 - `BOT_TOKEN` — production BotFather token (not committed)
 - `OWNER_TELEGRAM_ID` — your real numeric Telegram user ID
 - `DEV_ALLOW_ANY_USER=false`
+- `ACCOUNT_CREDENTIALS_KEY` — Fernet key generated on the host, never committed
 - `DATABASE_PATH=/app/data/bank_manager.db` is set by Compose and can stay unset in `.env`
 
-Optional demo data (does not run on startup):
+Do **not** run `scripts/seed_demo_accounts.py` after restoring a transferred database. The bot does not seed on startup. `db.init()` only applies `CREATE TABLE IF NOT EXISTS` / versioned migrations and will not wipe rows.
+
+Local `data/` and `.env` stay on the machine that created them and are not in Git.
+
+## Migrate the existing SQLite database to a VPS
+
+The live file is `data/bank_manager.db` (WAL mode). Do not `scp` that file while the bot is running. Create a consistent snapshot with the SQLite backup API, then copy that snapshot privately.
+
+### 1. Create a snapshot on this machine
 
 ```bash
-docker compose exec bot python scripts/seed_demo_accounts.py
+PYTHONPATH=. python scripts/export_vps_snapshot.py
 ```
 
-The seed script is idempotent, backs up the SQLite file first, and only writes the three known VM demo accounts. Do not run it against a database that already holds real financial records.
+Default output (gitignored):
 
-Local `data/` and `.env` stay on the machine that created them and are not in Git. To move an existing demo database, use **Settings → Backup database** or `/backup`, copy the backup file privately, and restore it on the VPS volume. Do not commit the `.db` file.
+`data/transfers/bank_manager-vps-snapshot.db`
+
+Verify it locally with `PRAGMA integrity_check` (the script does this). Never commit or push this file.
+
+### 2. Upload over SSH
+
+```bash
+chmod 600 data/transfers/bank_manager-vps-snapshot.db
+scp -p data/transfers/bank_manager-vps-snapshot.db USER@VPS_HOST:~/bank_manager-vps-snapshot.db
+ssh USER@VPS_HOST 'chmod 600 ~/bank_manager-vps-snapshot.db'
+```
+
+Use a key-based SSH login. Do not put the snapshot in GitHub, email, or a public object store.
+
+### 3. Restore into the Docker volume
+
+Inside the container the database path is **`/app/data/bank_manager.db`**.
+
+Compose mounts the named volume **`bot-data`** at `/app/data`. Docker’s full volume name is `{project}_bot-data` (for a clone directory named `banking-demo` that is `banking-demo_bot-data`).
+
+Restore **before** the first long-running start, or stop the bot first so WAL files are not in use:
+
+```bash
+cd banking-demo
+cp .env.example .env
+# set BOT_TOKEN, OWNER_TELEGRAM_ID, DEV_ALLOW_ANY_USER=false
+
+docker compose build
+docker compose create
+docker compose stop bot
+
+docker compose run --rm --no-deps --entrypoint sh \
+  -v "$HOME/bank_manager-vps-snapshot.db:/snapshot.db:ro" \
+  bot \
+  -c 'rm -f /app/data/bank_manager.db /app/data/bank_manager.db-wal /app/data/bank_manager.db-shm && cp /snapshot.db /app/data/bank_manager.db'
+
+docker compose up -d
+```
+
+`docker compose run` uses the same `bot-data` volume as the service, so the file lands at `/app/data/bank_manager.db`.
+
+Then confirm inside the container:
+
+```bash
+docker compose exec bot python - <<'PY'
+import sqlite3
+con = sqlite3.connect("/app/data/bank_manager.db")
+print(con.execute("PRAGMA integrity_check").fetchone()[0])
+print(con.execute("SELECT COUNT(*) FROM accounts").fetchone()[0], "accounts")
+print(con.execute("SELECT COUNT(*) FROM expected_withdrawals").fetchone()[0], "withdrawals")
+print(con.execute("SELECT COUNT(*) FROM balance_history").fetchone()[0], "history")
+PY
+```
+
+Do not run the demo seed after this restore. The transferred file already contains the full demo state.
 
 Firewall: allow SSH to your admin IP; deny unused inbound ports. Keep the Docker volume and any backup files private.
 
@@ -172,7 +242,7 @@ Prefer SQLite's **online backup API** while the bot is running. Do not copy the 
 
 ### From Telegram
 
-Authorized users can open **Settings → Backup database** (or send `/backup`). The bot writes a timestamped file under `data/backups/` and sends it as a document. Keep that file private.
+Only the owner can send `/backup`. Ordinary authorized users cannot download the database. The bot writes a timestamped file under `data/backups/` and sends it as a document. Keep that file private. Settings no longer exposes backup, export, or help buttons.
 
 ### From the host (bot running)
 
@@ -234,11 +304,29 @@ pytest
 
 - Only people listed in `OWNER_TELEGRAM_ID` / `ALLOWED_USER_IDS` can use the bot.
 - Sensitive actions require a private Telegram chat.
-- **Do not** send bank passwords, OTP codes, session tokens, recovery phrases, or 2FA backup codes to the bot. The data model stores a password-manager reference only. A future encrypted vault table can attach to `accounts.id` without rewriting account management.
-- Deposit details (IBAN, account numbers, SWIFT, …) are stored as text so leading zeros survive. They are shown only to authorized users in private chats and are **excluded from CSV exports**.
+- Login passwords are encrypted at rest with Fernet (`ACCOUNT_CREDENTIALS_KEY`). The key stays outside the database and Git. Only the owner can reveal a password. `DEV_ALLOW_ANY_USER` does not grant credential access.
+- CSV exports never include passwords, emails, mobile numbers, or banking identifiers.
+- Incoming password-containing Telegram messages are deleted when Telegram allows it. Revealed passwords still live in chat history — treat that as a security consideration.
 - Logs are structured and redacted; they must not contain banking identifiers or credentials.
 - Telegram itself is the transport. Treat chat history as sensitive.
 - SQLite is a single-file database. Protect the host disk and Docker volume.
+
+## Page banners
+
+Major screens send a photo banner plus caption. Placeholder PNGs live in `assets/banners/`:
+
+```
+dashboard.png
+accounts.png
+account-details.png
+balance-summary.png
+add-account.png
+expected-charges.png
+login-details.png
+settings.png
+```
+
+Recommended replacement size: **1280×360 PNG**. Keep the filenames. Restart the bot after replacing files so newly uploaded images are used; cached Telegram `file_id` values are process-local. If a file is missing, the bot falls back to a text message.
 
 ## What this bot does not do
 
@@ -249,7 +337,7 @@ pytest
 
 ## Demo accounts
 
-The bot does **not** seed data on startup. Local SQLite files under `data/` are gitignored. To create or refresh the three VM demo accounts (Airwallex / USD) with balances, history, and withdrawals, run:
+The bot does **not** seed data on startup. Local SQLite files under `data/` are gitignored. Use this script only on an empty development database. After restoring `bank_manager-vps-snapshot.db` on a VPS, skip it. To create or refresh the three VM demo accounts on a blank DB, run:
 
 ```bash
 PYTHONPATH=. python scripts/seed_demo_accounts.py

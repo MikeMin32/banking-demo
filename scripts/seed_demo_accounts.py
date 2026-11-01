@@ -2,6 +2,9 @@
 
 Does not run on startup. Safe to execute more than once.
 
+Do not run this after restoring data/transfers/bank_manager-vps-snapshot.db
+onto a VPS. That snapshot already contains the full demo state.
+
     PYTHONPATH=. .venv/bin/python scripts/seed_demo_accounts.py
 """
 

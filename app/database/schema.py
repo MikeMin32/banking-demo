@@ -96,9 +96,31 @@ SCHEMA_V2 = """
 CREATE INDEX IF NOT EXISTS idx_accounts_vm_number ON accounts(vm_number);
 """
 
+SCHEMA_V3 = """
+CREATE INDEX IF NOT EXISTS idx_withdrawals_applied ON expected_withdrawals(applied_to_balance);
+"""
+
+SCHEMA_V4 = """
+CREATE TABLE IF NOT EXISTS top_ups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    amount_minor INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    applied_to_balance INTEGER NOT NULL DEFAULT 0 CHECK (applied_to_balance IN (0, 1)),
+    reversed_at TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_top_ups_account ON top_ups(account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_top_ups_applied ON top_ups(applied_to_balance);
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, SCHEMA_V1),
     (2, SCHEMA_V2),
+    (3, SCHEMA_V3),
+    (4, SCHEMA_V4),
 ]
 
 
@@ -128,6 +150,8 @@ async def init_schema(conn: aiosqlite.Connection) -> None:
         logger.info("applying schema migration version=%s", version)
         if version == 2:
             await _apply_v2(conn)
+        if version == 3:
+            await _apply_v3(conn)
         if sql.strip():
             await conn.executescript(sql)
         await conn.execute(
@@ -188,6 +212,54 @@ async def _backfill_vm_fields(conn: aiosqlite.Connection) -> None:
             (vm_number, company_name, display_name, row["id"]),
         )
     await conn.commit()
+
+
+async def _apply_v3(conn: aiosqlite.Connection) -> None:
+    """Add line/storage/login fields and charge-applied flag. Never overwrites legacy VM/company."""
+    tables = {
+        row[0]
+        for row in await (await conn.execute("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    }
+    if "accounts" in tables:
+        for name, decl in (
+            ("line_name", "TEXT"),
+            ("linked_vm", "TEXT"),
+            ("stored_where", "TEXT"),
+            ("iban", "TEXT"),
+            ("bin", "TEXT"),
+            ("login_mobile", "TEXT"),
+            ("login_email", "TEXT"),
+            ("login_password_encrypted", "TEXT"),
+            ("two_fa_method", "TEXT"),
+        ):
+            await _add_column_if_missing(conn, "accounts", name, decl)
+        await _backfill_iban_from_deposits(conn)
+    if "expected_withdrawals" in tables:
+        await _add_column_if_missing(
+            conn, "expected_withdrawals", "applied_to_balance", "INTEGER NOT NULL DEFAULT 0"
+        )
+    await conn.commit()
+
+
+async def _backfill_iban_from_deposits(conn: aiosqlite.Connection) -> None:
+    if "deposit_details" not in {
+        row[0]
+        for row in await (await conn.execute("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    }:
+        return
+    await conn.execute(
+        """
+        UPDATE accounts
+        SET iban = (
+            SELECT deposit_details.iban
+            FROM deposit_details
+            WHERE deposit_details.account_id = accounts.id
+              AND deposit_details.iban IS NOT NULL
+              AND TRIM(deposit_details.iban) != ''
+        )
+        WHERE (iban IS NULL OR TRIM(iban) = '')
+        """
+    )
 
 
 async def _backup_before_migration(conn: aiosqlite.Connection, version: int) -> None:

@@ -104,3 +104,57 @@ async def test_delete_removes_account(services: Services) -> None:
     await services.accounts.delete(account.id)
     with pytest.raises(AccountError):
         await services.accounts.get(account.id)
+
+
+async def test_create_with_new_fields(services: Services) -> None:
+    account = await services.accounts.create(
+        draft(
+            vm_number=0,
+            company_name="",
+            line_name="Line 1",
+            linked_vm="VM 9",
+            stored_where="VMOS",
+            iban="DE89370400440532013000",
+            bin="411111",
+            bank_name="Airwallex",
+            currency="USD",
+            balance_raw="1500",
+            login_mobile="+15551234567",
+            login_email="ops@example.com",
+            login_password="plain-secret",
+            two_fa_method="Fanytel",
+        )
+    )
+    assert account.line_name == "Line 1"
+    assert account.linked_vm == "VM 9"
+    assert account.vm_number == 9
+    assert account.stored_where == "VMOS"
+    assert account.iban == "DE89370400440532013000"
+    assert account.bin == "411111"
+    assert account.login_mobile == "+15551234567"
+    assert account.login_email == "ops@example.com"
+    assert account.two_fa_method == "Fanytel"
+    assert account.has_password
+    assert account.line_label == "Line 1"
+    assert account.vm_label == "VM 9"
+    assert account.stored_label == "VMOS"
+
+
+async def test_edit_new_fields(services: Services) -> None:
+    account = await services.accounts.create(draft(line_name="Line 1", bank_name="N26", currency="EUR"))
+    updated = await services.accounts.update(
+        account.id,
+        line_name="Line 2",
+        linked_vm="On VM",
+        stored_where="On VM",
+        iban="LT121000011101001000",
+        bin="555555",
+        login_email="new@example.com",
+        two_fa_method="Email",
+    )
+    assert updated.line_name == "Line 2"
+    assert updated.iban == "LT121000011101001000"
+    assert updated.bin == "555555"
+    assert updated.stored_where == "On VM"
+    assert updated.login_email == "new@example.com"
+    assert updated.two_fa_method == "Email"

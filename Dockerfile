@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY scripts ./scripts
+COPY assets ./assets
 COPY pyproject.toml .
 
 RUN mkdir -p /app/data /app/data/backups

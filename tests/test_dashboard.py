@@ -21,11 +21,15 @@ async def test_currencies_are_never_combined(services: Services) -> None:
     assert snap.by_currency["EUR"].balance_minor == 4000
     assert snap.by_currency["USD"].pending_minor == 1000
     assert snap.by_currency["USD"].projected_minor == 9000
+    assert snap.by_currency["USD"].available_minor == 9000
     assert snap.by_currency["EUR"].projected_minor == 4000
+    assert snap.pending_by_account[usd.id] == 1000
+    lines = format_currency_lines(snap.by_currency, "available_minor")
+    assert "$90.00" in lines or "90.00" in lines
     # No combined grand total exists on the snapshot.
     assert not hasattr(snap, "grand_total")
     lines = format_currency_lines(snap.by_currency, "balance_minor")
-    assert "USD" in lines and "EUR" in lines
+    assert "$100.00" in lines and "€40.00" in lines
 
 
 async def test_archived_excluded_from_active_totals(services: Services) -> None:

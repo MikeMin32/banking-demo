@@ -11,8 +11,9 @@ id_ed25519
 credentials.json
 secrets/
 
-# Local SQLite data and backups (keep on disk, never commit)
+# Local SQLite data, backups, and VPS transfer snapshots (never commit)
 data/
+data/transfers/
 backups/
 *.db
 *.db-shm
@@ -35,6 +36,9 @@ __pycache__/
 htmlcov/
 .tox/
 .nox/
+
+# Local banner verification artifacts (not used by the bot)
+assets/banners/_contact-sheet.png
 
 # Build artifacts
 dist/

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     reminder_time: str = "09:00"
     log_level: str = "INFO"
     dev_allow_any_user: bool = False
+    account_credentials_key: str = ""
 
     @field_validator("bot_token")
     @classmethod
@@ -100,6 +101,10 @@ class Settings(BaseSettings):
 
     def is_owner(self, user_id: int) -> bool:
         return user_id == self.owner_telegram_id
+
+    def can_view_credentials(self, user_id: int) -> bool:
+        """Only the owner may see stored passwords. DEV_ALLOW_ANY_USER does not apply."""
+        return self.is_owner(user_id)
 
 
 @lru_cache(maxsize=1)

@@ -21,6 +21,11 @@ class AuthService:
             return False
         return self.settings.is_owner(user_id)
 
+    def can_view_credentials(self, user_id: int | None) -> bool:
+        if user_id is None:
+            return False
+        return self.settings.can_view_credentials(user_id)
+
     def is_private_chat(self, chat_type: str | ChatType | None) -> bool:
         if chat_type is None:
             return False

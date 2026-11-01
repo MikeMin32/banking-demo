@@ -111,11 +111,18 @@ def parse_to_minor(raw: str, currency: str) -> int:
     return to_minor(parse_amount(raw, currency), currency)
 
 
-def format_amount(minor: int, currency: str, *, with_code: bool = True) -> str:
+def currency_symbol(currency: str) -> str:
+    code = normalize_currency(currency)
+    return {"USD": "$", "EUR": "€"}.get(code, f"{code} ")
+
+
+def format_amount(minor: int, currency: str, *, with_code: bool = True, with_symbol: bool = False) -> str:
     currency = normalize_currency(currency)
     value = from_minor(minor, currency)
     places = exponent_for(currency)
     formatted = f"{value:,.{places}f}"
+    if with_symbol:
+        return f"{currency_symbol(currency)}{formatted}"
     if with_code:
         return f"{formatted} {currency}"
     return formatted

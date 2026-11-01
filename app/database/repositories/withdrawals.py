@@ -20,9 +20,12 @@ class Withdrawal:
     created_at: str
     completed_at: str | None
     updated_at: str
+    applied_to_balance: bool
 
     @classmethod
     def from_row(cls, row) -> Withdrawal:
+        keys = set(row.keys())
+        applied = row["applied_to_balance"] if "applied_to_balance" in keys else 0
         return cls(
             id=row["id"],
             account_id=row["account_id"],
@@ -33,6 +36,7 @@ class Withdrawal:
             created_at=row["created_at"],
             completed_at=row["completed_at"],
             updated_at=row["updated_at"],
+            applied_to_balance=bool(applied),
         )
 
 
@@ -53,8 +57,8 @@ class WithdrawalRepository:
             """
             INSERT INTO expected_withdrawals (
                 account_id, amount_minor, expected_date, description,
-                status, created_at, completed_at, updated_at
-            ) VALUES (?, ?, ?, ?, 'pending', ?, NULL, ?)
+                status, created_at, completed_at, updated_at, applied_to_balance
+            ) VALUES (?, ?, ?, ?, 'pending', ?, NULL, ?, 0)
             """,
             (account_id, amount_minor, expected_date, description, created_at, created_at),
         )
@@ -146,6 +150,28 @@ class WithdrawalRepository:
             """
         )
         return {int(row["account_id"]): int(row["total"]) for row in rows}
+
+    async def mark_completed_if_pending(self, withdrawal_id: int, now: str) -> int:
+        cursor = await self.db.execute(
+            """
+            UPDATE expected_withdrawals
+            SET status = 'completed', completed_at = ?, updated_at = ?
+            WHERE id = ? AND status = 'pending'
+            """,
+            (now, now, withdrawal_id),
+        )
+        return int(cursor.rowcount or 0)
+
+    async def mark_applied_if_needed(self, withdrawal_id: int, now: str) -> int:
+        cursor = await self.db.execute(
+            """
+            UPDATE expected_withdrawals
+            SET applied_to_balance = 1, updated_at = ?
+            WHERE id = ? AND applied_to_balance = 0
+            """,
+            (now, withdrawal_id),
+        )
+        return int(cursor.rowcount or 0)
 
     async def update_fields(self, withdrawal_id: int, fields: dict[str, object], updated_at: str) -> Withdrawal | None:
         if not fields:

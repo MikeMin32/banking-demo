@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from app.database.repositories.accounts import Account, AccountRepository
+from app.services.credentials import CredentialError, CredentialVault
 from app.services.money import MoneyError, normalize_ui_currency, parse_to_minor
 from app.services.naming import (
     NamingError,
@@ -25,11 +27,21 @@ ACCOUNT_EDITABLE_FIELDS = frozenset(
         "login_username",
         "password_manager_ref",
         "notes",
+        "line_name",
+        "linked_vm",
+        "stored_where",
+        "iban",
+        "bin",
+        "login_mobile",
+        "login_email",
+        "login_password",
+        "two_fa_method",
     }
 )
 
 MAX_NOTES = 1000
 MAX_URL = 500
+MAX_FIELD = 200
 
 
 class AccountError(ValueError):
@@ -51,6 +63,15 @@ class AccountDraft:
     login_username: str | None = None
     password_manager_ref: str | None = None
     notes: str | None = None
+    line_name: str | None = None
+    linked_vm: str | None = None
+    stored_where: str | None = None
+    iban: str | None = None
+    bin: str | None = None
+    login_mobile: str | None = None
+    login_email: str | None = None
+    login_password: str | None = None
+    two_fa_method: str | None = None
 
 
 def _clean_optional(value: str | None, label: str, *, max_len: int = 200) -> str | None:
@@ -71,21 +92,60 @@ def _vm_number(value: object) -> int:
         raise AccountError(str(exc)) from exc
 
 
+def parse_linked_vm(raw: str | None) -> tuple[str | None, int | None]:
+    text = _clean_optional(raw, "VM", max_len=MAX_FIELD)
+    if text is None:
+        return None, None
+    compact = re.fullmatch(r"(?:VM\s*)?(\d+)$", text, re.IGNORECASE)
+    if compact:
+        number = int(compact.group(1))
+        if 1 <= number <= 1_000_000:
+            return text, number
+    return text, None
+
+
 class AccountService:
-    def __init__(self, repo: AccountRepository) -> None:
+    def __init__(self, repo: AccountRepository, vault: CredentialVault | None = None) -> None:
         self.repo = repo
+        self.vault = vault or CredentialVault("")
 
     async def create(self, draft: AccountDraft) -> Account:
         try:
-            vm_number = _vm_number(draft.vm_number)
-            company_name = clean_company_name(draft.company_name)
             bank_name = clean_provider(draft.bank_name)
             currency = normalize_ui_currency(draft.currency)
             balance_minor = parse_to_minor(draft.balance_raw or "0", currency)
         except (NamingError, MoneyError) as exc:
             raise AccountError(str(exc)) from exc
+
+        line_name = _clean_optional(draft.line_name, "Line")
+        linked_vm, parsed_vm = parse_linked_vm(draft.linked_vm)
+        company_raw = (draft.company_name or "").strip()
+        vm_raw = draft.vm_number
+
+        vm_number: int | None
+        company_name: str | None
+        if company_raw or (vm_raw not in {0, "0", "", None}):
+            vm_number = _vm_number(vm_raw)
+            try:
+                company_name = clean_company_name(company_raw or (line_name or ""))
+            except NamingError as exc:
+                raise AccountError(str(exc)) from exc
+            if line_name is None:
+                line_name = company_name
+            if linked_vm is None and vm_number is not None:
+                linked_vm = f"VM {vm_number}"
+        else:
+            if line_name is None:
+                raise AccountError("Line is required.")
+            company_name = line_name
+            vm_number = parsed_vm
+
         now = utc_now_iso()
-        display_name = resolve_display_name(vm_number, company_name)
+        display_name = resolve_display_name(vm_number, company_name, fallback=line_name)
+        try:
+            password_enc = self.vault.encrypt(draft.login_password)
+        except CredentialError as exc:
+            raise AccountError(str(exc)) from exc
         return await self.repo.create(
             display_name=display_name,
             bank_name=bank_name,
@@ -102,6 +162,15 @@ class AccountService:
             notes=_clean_optional(draft.notes, "Notes", max_len=MAX_NOTES),
             last_updated_at=now,
             last_checked_at=now,
+            line_name=line_name,
+            linked_vm=linked_vm,
+            stored_where=_clean_optional(draft.stored_where, "Stored where"),
+            iban=_clean_optional(draft.iban, "IBAN", max_len=64),
+            bin=_clean_optional(draft.bin, "BIN", max_len=32),
+            login_mobile=_clean_optional(draft.login_mobile, "Mobile number"),
+            login_email=_clean_optional(draft.login_email, "Email"),
+            login_password_encrypted=password_enc,
+            two_fa_method=_clean_optional(draft.two_fa_method, "2FA method"),
         )
 
     async def get(self, account_id: int) -> Account:
@@ -153,14 +222,30 @@ class AccountService:
                 fields[key] = _clean_optional(
                     None if value is None else str(value), key.replace("_", " ").title(), max_len=MAX_URL
                 )
+            elif key == "linked_vm":
+                linked, parsed = parse_linked_vm(None if value is None else str(value))
+                fields["linked_vm"] = linked
+                if parsed is not None:
+                    fields["vm_number"] = parsed
+            elif key == "login_password":
+                try:
+                    fields["login_password_encrypted"] = self.vault.encrypt(
+                        None if value is None else str(value)
+                    )
+                except CredentialError as exc:
+                    raise AccountError(str(exc)) from exc
+            elif key in {"iban", "bin"}:
+                limit = 64 if key == "iban" else 32
+                fields[key] = _clean_optional(None if value is None else str(value), key.upper(), max_len=limit)
             else:
                 fields[key] = _clean_optional(None if value is None else str(value), key.replace("_", " ").title())
 
         next_vm = fields.get("vm_number", account.vm_number)
         next_company = fields.get("company_name", account.company_name)
+        next_line = fields.get("line_name", account.line_name)
         fields["display_name"] = resolve_display_name(
             next_vm if isinstance(next_vm, int) or next_vm is None else account.vm_number,
-            str(next_company) if next_company is not None else None,
+            str(next_company) if next_company is not None else (str(next_line) if next_line else None),
             fallback=account.display_name,
         )
         updated = await self.repo.update_fields(account.id, fields, utc_now_iso())
@@ -213,3 +298,11 @@ class AccountService:
 
     async def find_by_vm_company(self, vm_number: int, company_name: str) -> Account | None:
         return await self.repo.find_by_vm_company(vm_number, company_name)
+
+    def reveal_password(self, account: Account) -> str | None:
+        if not account.login_password_encrypted:
+            return None
+        try:
+            return self.vault.decrypt(account.login_password_encrypted)
+        except CredentialError as exc:
+            raise AccountError(str(exc)) from exc
