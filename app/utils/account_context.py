@@ -41,14 +41,15 @@ def totals_block(totals: AccountTotals, *, compact: bool = False) -> str:
     current = format_amount(totals.current_minor, currency, with_symbol=True)
     projected = format_amount(totals.projected_minor, currency, with_symbol=True)
     if compact:
-        return (
-            f"🟢 {inn}  ·  🔴 {out}  ·  ⏳ {expected}\n"
-            f"💰 {current}  →  📊 {projected}"
-        )
+        # Accounts overview: emoji-only amounts, no In/Out, no labels.
+        return f"⏳ {expected}\n💰 {current}\n📊 {projected}"
+    # Account Details: three visual groups with one blank line between them.
     return (
         f"🟢 In: {inn}\n"
         f"🔴 Out: {out}\n"
-        f"⏳ Expected: {expected}\n\n"
+        f"\n"
+        f"⏳ Expected: {expected}\n"
+        f"\n"
         f"💰 Current Balance: <b>{current}</b>\n"
         f"📊 Projected Balance: <b>{projected}</b>"
     )

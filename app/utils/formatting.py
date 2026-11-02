@@ -72,27 +72,31 @@ def account_card(
         current = account.balance_minor
         projected = current - pending_minor
         money = (
-            f"⏳ Expected: {_money(pending_minor, account.currency)}\n\n"
+            f"⏳ Expected: {_money(pending_minor, account.currency)}\n"
+            f"\n"
             f"💰 Current Balance: <b>{_money(current, account.currency)}</b>\n"
             f"📊 Projected Balance: <b>{_money(projected, account.currency)}</b>"
         )
     archived_line = "📦 Archived\n" if account.is_archived else ""
     body = (
         f"{archived_line}"
-        f"{money}\n\n"
+        f"{money}\n"
+        f"\n"
         f"VM: {e(account.vm_label)}\n"
         f"Stored: {e(account.stored_label)}\n"
         f"IBAN: <code>{e(account.iban)}</code>\n"
         f"BIN: <code>{e(account.bin)}</code>\n"
         f"Updated: {format_dt(account.last_updated_at, tz)}"
     )
-    return f"{account_identity_line(account)}\n\n{body}"
+    # No blank line between identity and financial groups.
+    return f"{account_identity_line(account)}\n{body}"
 
 
 def accounts_page_summary(blocks: list[str]) -> str:
     if not blocks:
         return "Select an account:"
-    return "\n\n".join(blocks) + "\n\nSelect an account:"
+    # Exactly one blank line between accounts; no trailing prompt clutter.
+    return "\n\n".join(blocks)
 
 
 def overview_pages(snap: DashboardSnapshot, tz: ZoneInfo, *, compact: bool = False) -> list[str]:

@@ -38,6 +38,16 @@ async def test_account_card_one_field_per_line(services) -> None:
     assert "Expected:" in text
     assert "Account Details" not in text
 
+    # Three financial groups separated by exactly one blank line.
+    money = text[text.index("🟢 In:") : text.index("\n\nVM:")]
+    groups = money.split("\n\n")
+    assert len(groups) == 3
+    assert groups[0].startswith("🟢 In:")
+    assert "🔴 Out:" in groups[0]
+    assert groups[1].startswith("⏳ Expected:")
+    assert groups[2].startswith("💰 Current Balance:")
+    assert "📊 Projected Balance:" in groups[2]
+
     # Lower section: one field per line, preserved order.
     assert "VM:" in text
     assert "Stored:" in text
@@ -52,6 +62,62 @@ async def test_account_card_one_field_per_line(services) -> None:
     assert lines[3].startswith("BIN:")
     assert lines[4].startswith("Updated:")
     assert " · " not in lower
+
+
+def test_accounts_overview_compact_no_in_out_labels() -> None:
+    from app.utils.account_context import account_identity_line, totals_block
+    from app.utils.formatting import accounts_page_summary
+    from app.services.totals import AccountTotals
+
+    class Acc:
+        line_label = "Graphics Press"
+        banking_provider = "Airwallex"
+        currency = "USD"
+        balance_minor = 454_020
+
+    totals = AccountTotals(
+        account=Acc(),  # type: ignore[arg-type]
+        in_minor=20_000,
+        out_minor=100_000,
+        expected_minor=45_000,
+        current_minor=454_020,
+        projected_minor=409_020,
+    )
+    block = f"{account_identity_line(Acc())}\n{totals_block(totals, compact=True)}"  # type: ignore[arg-type]
+    assert block == (
+        "🏦 <b>GRAPHICS PRESS · AIRWALLEX</b>\n"
+        "⏳ $450.00\n"
+        "💰 $4,540.20\n"
+        "📊 $4,090.20"
+    )
+    assert "In" not in block
+    assert "Out" not in block
+    assert "Expected" not in block
+    assert "Current" not in block
+    assert "Projected" not in block
+
+    second = AccountTotals(
+        account=Acc(),  # type: ignore[arg-type]
+        in_minor=0,
+        out_minor=0,
+        expected_minor=370_000,
+        current_minor=1_245_075,
+        projected_minor=875_075,
+    )
+
+    class Acc2:
+        line_label = "LeBon Shoppe"
+        banking_provider = "Airwallex"
+        currency = "USD"
+
+    page = accounts_page_summary(
+        [
+            block,
+            f"{account_identity_line(Acc2())}\n{totals_block(second, compact=True)}",  # type: ignore[arg-type]
+        ]
+    )
+    assert "\n\n🏦 <b>LEBON SHOPPE" in page
+    assert "Select an account" not in page
 
 
 async def test_account_view_kb_four_by_two() -> None:
