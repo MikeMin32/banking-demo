@@ -23,21 +23,35 @@ async def test_account_card_one_field_per_line(services) -> None:
             stored_where="",
         )
     )
-    text = account_card(account, ZoneInfo("Europe/Kyiv"), pending_minor=120_000)
+    totals = await services.totals.for_account(account.id)
+    # Simulate pending charges for projected balance in the card.
+    totals.expected_minor = 120_000
+    totals.projected_minor = totals.current_minor - 120_000
+    text = account_card(
+        account, ZoneInfo("Europe/Kyiv"), pending_minor=120_000, totals=totals
+    )
 
-    assert "Active Balance" in text
-    assert "Active Charges" in text
+    assert "Current Balance" in text
+    assert "Projected Balance" in text
+    assert "In:" in text
+    assert "Out:" in text
+    assert "Expected:" in text
     assert "Account Details" not in text
 
     # Lower section: one field per line, preserved order.
-    body = text.split("\n\n", 1)[1]
-    lines = body.splitlines()
+    assert "VM:" in text
+    assert "Stored:" in text
+    assert "IBAN:" in text
+    assert "BIN:" in text
+    assert "Updated:" in text
+    lower = text[text.index("VM:") :]
+    lines = lower.splitlines()
     assert lines[0].startswith("VM:")
     assert lines[1].startswith("Stored:")
     assert lines[2].startswith("IBAN:")
     assert lines[3].startswith("BIN:")
     assert lines[4].startswith("Updated:")
-    assert " · " not in body
+    assert " · " not in lower
 
 
 async def test_account_view_kb_four_by_two() -> None:
@@ -53,7 +67,7 @@ async def test_account_view_kb_four_by_two() -> None:
     labels = [[btn.text for btn in row] for row in rows]
     assert labels == [
         ["💵 Balance", "📋 Transactions"],
-        ["➕ Add Charge", "💰 Add Top Up"],
+        ["➕ Add Charge", "💰 Deposit"],
         ["🔐 Login Details", "✏️ Edit Account"],
         ["⬅️ Back", "🏠 Home"],
     ]

@@ -32,7 +32,7 @@ async def cb_add(query: CallbackQuery, callback_data: TuCB, services: Services, 
     account, text = await account_body(
         services,
         account_id,
-        f"Enter top-up amount ({currency}):",
+        f"Enter deposit amount ({currency}):",
     )
     await state.set_state(TopUpForm.amount)
     await state.update_data(account_id=account.id)
@@ -47,17 +47,17 @@ async def form_amount(message: Message, services: Services, state: FSMContext) -
         result = await services.topups.create(account_id, message.text or "")
         projection = await services.withdrawals.projection(result.account.id)
     except (TopUpError, AccountError) as exc:
-        _, text = await account_body(services, account_id, f"<b>💰 ADD TOP UP</b>\n\n{exc}")
+        _, text = await account_body(services, account_id, f"<b>💰 DEPOSIT</b>\n\n{exc}")
         await message.answer(text, reply_markup=form_kb(back=f"acc:{account_id}"))
         return
     await clear_state(state)
     summary = (
-        f"<b>Top up saved</b>\n"
+        f"<b>Deposit saved</b>\n"
         f"+{format_amount(result.top_up.amount_minor, result.account.currency, with_symbol=True)}\n"
-        f"Bank balance: {format_amount(result.old_balance_minor, result.account.currency, with_symbol=True)}"
+        f"Current: {format_amount(result.old_balance_minor, result.account.currency, with_symbol=True)}"
         f"  →  <b>{format_amount(result.new_balance_minor, result.account.currency, with_symbol=True)}</b>\n"
-        f"Pending charges: {format_amount(projection.pending_minor, result.account.currency, with_symbol=True)}\n"
-        f"Available: <b>{format_amount(projection.available_minor, result.account.currency, with_symbol=True)}</b>"
+        f"Expected: {format_amount(projection.pending_minor, result.account.currency, with_symbol=True)}\n"
+        f"Projected: <b>{format_amount(projection.available_minor, result.account.currency, with_symbol=True)}</b>"
     )
     _, text = await account_body(services, result.account.id, summary)
     await message.answer(text)
@@ -150,4 +150,4 @@ async def cb_transactions(query: CallbackQuery, callback_data: AccCB, services: 
     await answer_callback(query)
     await clear_state(state)
     _, text = await account_body(services, callback_data.i, "Choose a list:")
-    await render_screen(query, "account-details", text, transactions_hub_kb(callback_data.i))
+    await render_screen(query, "transactions", text, transactions_hub_kb(callback_data.i))

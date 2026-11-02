@@ -167,15 +167,150 @@ async def form_amount(message: Message, services: Services, state: FSMContext) -
     await render_account(message, services, account.id)
 
 
-@router.callback_query(WdCB.filter(F.o == "done"))
-async def cb_complete(query: CallbackQuery, callback_data: WdCB, services: Services) -> None:
+@router.callback_query(WdCB.filter(F.o == "act"))
+async def cb_actual_start(query: CallbackQuery, callback_data: WdCB, services: Services, state: FSMContext) -> None:
+    """Ask for the actual charged amount (may differ from expected)."""
+    await answer_callback(query)
     try:
-        withdrawal = await services.withdrawals.complete(callback_data.i)
+        withdrawal = await services.withdrawals.get(callback_data.i)
         account = await services.accounts.get(withdrawal.account_id)
     except (WithdrawalError, AccountError) as exc:
         await query.answer(str(exc), show_alert=True)
         return
-    await answer_callback(query, "Marked completed")
+    expected = format_amount(withdrawal.amount_minor, account.currency, with_symbol=True)
+    await state.set_state(ChargeForm.actual_amount)
+    await state.update_data(
+        withdrawal_id=withdrawal.id,
+        account_id=account.id,
+        status=callback_data.s,
+        expected_minor=withdrawal.amount_minor,
+    )
+    from aiogram.types import InlineKeyboardButton
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="Use expected amount",
+            callback_data=WdCB(o="ause", i=withdrawal.id, a=account.id, s=callback_data.s).pack(),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="✖️ Cancel",
+            callback_data=WdCB(o="view", i=withdrawal.id, a=callback_data.a, s=callback_data.s).pack(),
+        )
+    )
+    _, text = await account_body(
+        services,
+        account.id,
+        f"<b>✅ Actual Charge</b>\nExpected: {expected}\nEnter the actual amount charged:",
+    )
+    await render_screen(query, "expected-charges", text, builder.as_markup())
+
+
+@router.callback_query(WdCB.filter(F.o == "ause"))
+async def cb_actual_use_expected(query: CallbackQuery, callback_data: WdCB, services: Services, state: FSMContext) -> None:
+    await answer_callback(query)
+    data = await state.get_data()
+    expected_minor = int(data.get("expected_minor") or 0)
+    await state.update_data(actual_raw="", actual_minor=expected_minor)
+    await _prompt_actual_apply(
+        query, services, account_id=callback_data.a, withdrawal_id=callback_data.i, status=callback_data.s
+    )
+
+
+@router.message(ChargeForm.actual_amount)
+async def form_charge_actual(message: Message, services: Services, state: FSMContext) -> None:
+    from app.services.money import MoneyError, parse_to_minor
+
+    data = await state.get_data()
+    account_id = int(data["account_id"])
+    withdrawal_id = int(data["withdrawal_id"])
+    status = str(data.get("status") or "pending")
+    raw = message.text or ""
+    try:
+        account = await services.accounts.get(account_id)
+        amount_minor = parse_to_minor(raw, account.currency)
+        if amount_minor <= 0:
+            raise WithdrawalError("Actual charge amount must be greater than zero.")
+    except (MoneyError, WithdrawalError, AccountError) as exc:
+        _, text = await account_body(services, account_id, f"<b>✅ Actual Charge</b>\n\n{exc}")
+        await message.answer(text, reply_markup=form_kb(back=f"acc:{account_id}"))
+        return
+    await state.update_data(actual_raw=raw, actual_minor=amount_minor)
+    await _prompt_actual_apply(
+        message, services, account_id=account_id, withdrawal_id=withdrawal_id, status=status
+    )
+
+
+async def _prompt_actual_apply(
+    target: Message | CallbackQuery,
+    services: Services,
+    *,
+    account_id: int,
+    withdrawal_id: int,
+    status: str,
+) -> None:
+    from aiogram.types import InlineKeyboardButton
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="✅ Deduct from balance",
+            callback_data=WdCB(o="aded", i=withdrawal_id, a=account_id, s=status).pack(),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="📌 Already in bank balance",
+            callback_data=WdCB(o="aalr", i=withdrawal_id, a=account_id, s=status).pack(),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="✖️ Cancel",
+            callback_data=WdCB(o="view", i=withdrawal_id, a=account_id, s=status).pack(),
+        )
+    )
+    _, text = await account_body(
+        services,
+        account_id,
+        "<b>✅ Confirm actual charge</b>\n"
+        "Deduct from recorded balance, or mark as already reflected after a manual update.",
+    )
+    if isinstance(target, CallbackQuery):
+        await render_screen(target, "expected-charges", text, builder.as_markup())
+    else:
+        await target.answer(text, reply_markup=builder.as_markup())
+
+
+@router.callback_query(WdCB.filter(F.o.in_({"aded", "aalr", "done"})))
+async def cb_complete(query: CallbackQuery, callback_data: WdCB, services: Services, state: FSMContext) -> None:
+    deduct = callback_data.o != "aalr"
+    data = await state.get_data()
+    raw = data.get("actual_raw") or None
+    actual_minor = data.get("actual_minor")
+    try:
+        if callback_data.o == "done":
+            result_wd = await services.withdrawals.complete(callback_data.i)
+            account = await services.accounts.get(result_wd.account_id)
+            withdrawal = result_wd
+        else:
+            result = await services.withdrawals.confirm_actual(
+                callback_data.i,
+                raw_actual=str(raw) if raw else None,
+                actual_minor=int(actual_minor) if actual_minor is not None else None,
+                deduct=deduct,
+            )
+            withdrawal = result.withdrawal
+            account = result.account
+    except (WithdrawalError, AccountError) as exc:
+        await query.answer(str(exc), show_alert=True)
+        return
+    await clear_state(state)
+    await answer_callback(query, "Saved")
     _, text = await account_body(
         services,
         account.id,

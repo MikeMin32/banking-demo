@@ -79,7 +79,7 @@ def account_view_kb(account: Account, *, from_page: int = 0) -> InlineKeyboardMa
     )
     builder.row(
         InlineKeyboardButton(text="➕ Add Charge", callback_data=WdCB(o="add", a=account.id).pack()),
-        InlineKeyboardButton(text="💰 Add Top Up", callback_data=TuCB(o="add", a=account.id).pack()),
+        InlineKeyboardButton(text="💰 Deposit", callback_data=TuCB(o="add", a=account.id).pack()),
     )
     builder.row(
         InlineKeyboardButton(text="🔐 Login Details", callback_data=AccCB(o="log", i=account.id).pack()),

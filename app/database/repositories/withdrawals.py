@@ -21,11 +21,22 @@ class Withdrawal:
     completed_at: str | None
     updated_at: str
     applied_to_balance: bool
+    actual_amount_minor: int | None = None
+
+    @property
+    def posted_minor(self) -> int:
+        """Amount counted toward Out / deducted when applied."""
+        if self.actual_amount_minor is not None:
+            return int(self.actual_amount_minor)
+        return int(self.amount_minor)
 
     @classmethod
     def from_row(cls, row) -> Withdrawal:
         keys = set(row.keys())
         applied = row["applied_to_balance"] if "applied_to_balance" in keys else 0
+        actual = None
+        if "actual_amount_minor" in keys and row["actual_amount_minor"] is not None:
+            actual = int(row["actual_amount_minor"])
         return cls(
             id=row["id"],
             account_id=row["account_id"],
@@ -37,6 +48,7 @@ class Withdrawal:
             completed_at=row["completed_at"],
             updated_at=row["updated_at"],
             applied_to_balance=bool(applied),
+            actual_amount_minor=actual,
         )
 
 
@@ -52,15 +64,33 @@ class WithdrawalRepository:
         created_at: str,
         expected_date: str | None = None,
         description: str | None = None,
+        status: str = "pending",
+        completed_at: str | None = None,
+        applied_to_balance: int = 0,
+        actual_amount_minor: int | None = None,
     ) -> Withdrawal:
+        if status not in VALID_STATUSES:
+            raise ValueError(f"Invalid withdrawal status: {status}")
         cursor = await self.db.execute(
             """
             INSERT INTO expected_withdrawals (
                 account_id, amount_minor, expected_date, description,
-                status, created_at, completed_at, updated_at, applied_to_balance
-            ) VALUES (?, ?, ?, ?, 'pending', ?, NULL, ?, 0)
+                status, created_at, completed_at, updated_at, applied_to_balance,
+                actual_amount_minor
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (account_id, amount_minor, expected_date, description, created_at, created_at),
+            (
+                account_id,
+                amount_minor,
+                expected_date,
+                description,
+                status,
+                created_at,
+                completed_at,
+                created_at,
+                applied_to_balance,
+                actual_amount_minor,
+            ),
         )
         withdrawal = await self.get(int(cursor.lastrowid))
         assert withdrawal is not None
@@ -146,6 +176,29 @@ class WithdrawalRepository:
             SELECT account_id, COALESCE(SUM(amount_minor), 0) AS total
             FROM expected_withdrawals
             WHERE status = 'pending'
+            GROUP BY account_id
+            """
+        )
+        return {int(row["account_id"]): int(row["total"]) for row in rows}
+
+    async def out_total_for_account(self, account_id: int) -> int:
+        """Sum of applied actual charges only (never pending / legacy unapplied)."""
+        row = await self.db.fetchone(
+            """
+            SELECT COALESCE(SUM(COALESCE(actual_amount_minor, amount_minor)), 0) AS total
+            FROM expected_withdrawals
+            WHERE account_id = ? AND applied_to_balance = 1
+            """,
+            (account_id,),
+        )
+        return int(row["total"]) if row else 0
+
+    async def out_totals_by_account(self) -> dict[int, int]:
+        rows = await self.db.fetchall(
+            """
+            SELECT account_id, COALESCE(SUM(COALESCE(actual_amount_minor, amount_minor)), 0) AS total
+            FROM expected_withdrawals
+            WHERE applied_to_balance = 1
             GROUP BY account_id
             """
         )

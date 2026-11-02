@@ -17,7 +17,8 @@ def main_menu_kb() -> InlineKeyboardMarkup:
     builder.button(text="💰 Balance Summary", callback_data=MenuCB(a="overview").pack())
     builder.button(text="➕ Add Account", callback_data=MenuCB(a="add").pack())
     builder.button(text="⚙️ Settings", callback_data=MenuCB(a="settings").pack())
-    builder.adjust(2, 2)
+    builder.button(text="⚡ Quick Update", callback_data=MenuCB(a="quick").pack())
+    builder.adjust(2, 2, 1)
     return builder.as_markup()
 
 

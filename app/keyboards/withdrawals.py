@@ -55,7 +55,10 @@ def withdrawals_list_kb(
 def withdrawal_view_kb(withdrawal: Withdrawal, *, status: str, account_id: int, page: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if withdrawal.status == "pending":
-        builder.button(text="✅ Mark completed", callback_data=WdCB(o="done", i=withdrawal.id, a=account_id, s=status).pack())
+        builder.button(
+            text="✅ Actual Charge",
+            callback_data=WdCB(o="act", i=withdrawal.id, a=account_id, s=status).pack(),
+        )
         builder.button(text="🚫 Cancel charge", callback_data=WdCB(o="cncl", i=withdrawal.id, a=account_id, s=status).pack())
         builder.button(text="✏️ Amount", callback_data=WdCB(o="eamt", i=withdrawal.id, a=account_id, s=status).pack())
         builder.adjust(2, 1)

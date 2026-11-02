@@ -19,10 +19,16 @@ class BalanceForm(StatesGroup):
 class ChargeForm(StatesGroup):
     amount = State()
     edit_value = State()
+    actual_amount = State()
 
 
 class TopUpForm(StatesGroup):
     amount = State()
+
+
+class QuickUpdateForm(StatesGroup):
+    amount = State()
+    actual_amount = State()
 
 
 class LoginForm(StatesGroup):

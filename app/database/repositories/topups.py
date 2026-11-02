@@ -107,3 +107,28 @@ class TopUpRepository:
             (account_id,),
         )
         return int(row["n"]) if row else 0
+
+    async def in_total_for_account(self, account_id: int) -> int:
+        """Sum of applied, non-reversed deposits/top-ups."""
+        row = await self.db.fetchone(
+            """
+            SELECT COALESCE(SUM(amount_minor), 0) AS total
+            FROM top_ups
+            WHERE account_id = ?
+              AND applied_to_balance = 1
+              AND reversed_at IS NULL
+            """,
+            (account_id,),
+        )
+        return int(row["total"]) if row else 0
+
+    async def in_totals_by_account(self) -> dict[int, int]:
+        rows = await self.db.fetchall(
+            """
+            SELECT account_id, COALESCE(SUM(amount_minor), 0) AS total
+            FROM top_ups
+            WHERE applied_to_balance = 1 AND reversed_at IS NULL
+            GROUP BY account_id
+            """
+        )
+        return {int(row["account_id"]): int(row["total"]) for row in rows}

@@ -97,8 +97,18 @@ async def _list_accounts(query: CallbackQuery, services: Services, *, archived: 
     }
     if not items and page == 0:
         text = "No accounts in this list yet." if not archived else "No archived accounts."
+    elif archived:
+        text = "Archived accounts:"
     else:
-        text = "Select an account:" if not archived else "Archived accounts:"
+        totals_map = await services.totals.for_accounts(items)
+        from app.utils.account_context import account_identity_line, totals_block
+        from app.utils.formatting import accounts_page_summary
+
+        blocks = [
+            f"{account_identity_line(account)}\n{totals_block(totals_map[account.id], compact=True)}"
+            for account in items
+        ]
+        text = accounts_page_summary(blocks)
     await render_screen(
         query,
         "accounts",
@@ -109,11 +119,16 @@ async def _list_accounts(query: CallbackQuery, services: Services, *, archived: 
 
 async def render_account(target: Message | CallbackQuery, services: Services, account_id: int, *, page: int = 0) -> None:
     account = await services.accounts.get(account_id)
-    projection = await services.withdrawals.projection(account.id)
+    totals = await services.totals.for_account(account.id)
     await render_screen(
         target,
         "account-details",
-        account_card(account, services.tz, pending_minor=projection.pending_minor),
+        account_card(
+            account,
+            services.tz,
+            pending_minor=totals.expected_minor,
+            totals=totals,
+        ),
         account_view_kb(account, from_page=page),
     )
 

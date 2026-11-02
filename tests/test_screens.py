@@ -16,6 +16,8 @@ def test_placeholder_banners_exist() -> None:
         "expected-charges",
         "login-details",
         "settings",
+        "quick-add",
+        "transactions",
     ):
         assert banner_exists(name)
         assert banner_path(name).stat().st_size > 0
@@ -23,10 +25,16 @@ def test_placeholder_banners_exist() -> None:
     assert CAPTION_LIMIT == 1024
 
 
-def test_main_menu_has_four_primary_actions() -> None:
+def test_main_menu_has_quick_update() -> None:
     markup = main_menu_kb()
     labels = [button.text for row in markup.inline_keyboard for button in row]
-    assert labels == ["🏦 Bank Accounts", "💰 Balance Summary", "➕ Add Account", "⚙️ Settings"]
+    assert labels == [
+        "🏦 Bank Accounts",
+        "💰 Balance Summary",
+        "➕ Add Account",
+        "⚙️ Settings",
+        "⚡ Quick Update",
+    ]
 
 
 def test_account_button_includes_available_balance() -> None:

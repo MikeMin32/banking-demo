@@ -53,3 +53,12 @@ class TuCB(CallbackData, prefix="t"):
     i: int = 0
     a: int = 0
     p: int = 0
+
+
+class QuCB(CallbackData, prefix="q"):
+    """Quick Update: o=menu|exp|act|dep|pick|link|solo|use|ded|alr"""
+
+    o: str
+    a: int = 0
+    i: int = 0
+    p: int = 0

@@ -95,13 +95,13 @@ def test_account_context_header_format() -> None:
         line_label = "Line 1"
         banking_provider = "Airwallex"
         currency = "USD"
+        balance_minor = 125000
 
     header = account_context_header(Fake(), 125000, 150000)  # type: ignore[arg-type]
     assert "LINE 1 · AIRWALLEX" in header
-    assert "Active Balance" in header
+    assert "Current" in header
+    assert "Projected" in header
     assert "$1,250.00" in header
-    assert "Active Charges" in header
-    assert "$1,500.00" in header
     assert "─" not in header
     wrapped = with_account_header(Fake(), 125000, "Enter charge amount (USD):", pending_minor=0)  # type: ignore[arg-type]
     assert wrapped.startswith("🏦")
@@ -115,7 +115,7 @@ async def test_header_uses_live_available(services: Services) -> None:
 
     _, text = await account_body(services, account.id, "Mobile: —")
     assert "LINE 9 · N26" in text
-    assert "Active Balance" in text
+    assert "Current" in text
+    assert "€1,000.00" in text
+    assert "Projected" in text
     assert "€750.00" in text
-    assert "Active Charges" in text
-    assert "€250.00" in text

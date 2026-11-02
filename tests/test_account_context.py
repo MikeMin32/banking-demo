@@ -10,14 +10,15 @@ def test_header_compact_mobile_layout() -> None:
         line_label = "Line 1"
         banking_provider = "Airwallex"
         currency = "USD"
+        balance_minor = 100000
 
     text = with_account_header(
         Fake(), 80000, "Enter top-up amount (USD):", pending_minor=20000  # type: ignore[arg-type]
     )
-    assert "Active Balance" in text
+    assert "Current" in text
+    assert "$1,000.00" in text
+    assert "Projected" in text
     assert "$800.00" in text
-    assert "Active Charges" in text
-    assert "$200.00" in text
     assert "─" not in text
     assert "Enter top-up amount" in text
     assert account_context_header(Fake(), 80000, 20000).count("\n") == 2  # type: ignore[arg-type]
@@ -40,7 +41,8 @@ async def test_nested_screens_share_live_header(services: Services) -> None:
     for body in screens:
         _, text = await account_body(services, account.id, body)
         assert "OPS LINE · AIRWALLEX" in text
+        assert "Current" in text
+        assert "$2,100.00" in text
+        assert "Projected" in text
         assert "$1,600.00" in text
-        assert "Active Charges" in text
-        assert "$500.00" in text
         assert body.splitlines()[0] in text

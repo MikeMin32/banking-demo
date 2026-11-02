@@ -55,22 +55,44 @@ def dashboard_text(snap: DashboardSnapshot, tz: ZoneInfo) -> str:
     )
 
 
-def account_card(account: Account, tz: ZoneInfo, *, pending_minor: int, stale: bool = False) -> str:
+def account_card(
+    account: Account,
+    tz: ZoneInfo,
+    *,
+    pending_minor: int,
+    stale: bool = False,
+    totals=None,
+) -> str:
     del stale
-    available = account.balance_minor - pending_minor
-    archived = " · archived" if account.is_archived else ""
-    from app.utils.account_context import with_account_header
+    from app.utils.account_context import account_identity_line, totals_block
 
-    archived_line = "📦 Archived\n" if archived else ""
+    if totals is not None:
+        money = totals_block(totals)
+    else:
+        current = account.balance_minor
+        projected = current - pending_minor
+        money = (
+            f"⏳ Expected: {_money(pending_minor, account.currency)}\n\n"
+            f"💰 Current Balance: <b>{_money(current, account.currency)}</b>\n"
+            f"📊 Projected Balance: <b>{_money(projected, account.currency)}</b>"
+        )
+    archived_line = "📦 Archived\n" if account.is_archived else ""
     body = (
         f"{archived_line}"
+        f"{money}\n\n"
         f"VM: {e(account.vm_label)}\n"
         f"Stored: {e(account.stored_label)}\n"
         f"IBAN: <code>{e(account.iban)}</code>\n"
         f"BIN: <code>{e(account.bin)}</code>\n"
         f"Updated: {format_dt(account.last_updated_at, tz)}"
     )
-    return with_account_header(account, available, body, pending_minor=pending_minor)
+    return f"{account_identity_line(account)}\n\n{body}"
+
+
+def accounts_page_summary(blocks: list[str]) -> str:
+    if not blocks:
+        return "Select an account:"
+    return "\n\n".join(blocks) + "\n\nSelect an account:"
 
 
 def overview_pages(snap: DashboardSnapshot, tz: ZoneInfo, *, compact: bool = False) -> list[str]:
@@ -132,8 +154,22 @@ def withdrawal_section(withdrawal: Withdrawal, account: Account, tz: ZoneInfo) -
     applied = ""
     if withdrawal.status == "completed" and not withdrawal.applied_to_balance:
         applied = "\n<i>Legacy — bank balance unchanged.</i>"
+    actual = ""
+    if (
+        withdrawal.status == "completed"
+        and withdrawal.actual_amount_minor is not None
+        and withdrawal.actual_amount_minor != withdrawal.amount_minor
+    ):
+        actual = (
+            f"\nExpected: {_money(withdrawal.amount_minor, account.currency)}"
+            f"\nActual: {_money(withdrawal.actual_amount_minor, account.currency)}"
+        )
+        amount_line = f"{status_icon} {_money(withdrawal.actual_amount_minor, account.currency)} · {withdrawal.status}"
+    else:
+        amount_line = f"{status_icon} {_money(withdrawal.amount_minor, account.currency)} · {withdrawal.status}"
     return (
-        f"{status_icon} {_money(withdrawal.amount_minor, account.currency)} · {withdrawal.status}\n"
+        f"{amount_line}"
+        f"{actual}\n"
         f"Added: {format_dt(withdrawal.created_at, tz)}"
         f"{completed}{applied}"
     )
