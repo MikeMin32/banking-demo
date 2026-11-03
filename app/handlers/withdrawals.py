@@ -9,7 +9,13 @@ from aiogram.types import CallbackQuery, Message
 from app.handlers.accounts import render_account
 from app.keyboards.callbacks import MenuCB, WdCB
 from app.keyboards.common import PAGE_SIZE, confirm_action_kb, form_kb
-from app.keyboards.withdrawals import pick_account_for_wd_kb, withdrawal_view_kb, withdrawals_list_kb
+from app.keyboards.withdrawals import (
+    charge_link_pending_kb,
+    charge_type_kb,
+    pick_account_for_wd_kb,
+    withdrawal_view_kb,
+    withdrawals_list_kb,
+)
 from app.services.accounts import AccountError
 from app.services.container import Services
 from app.services.money import format_amount
@@ -109,7 +115,7 @@ async def cb_add(query: CallbackQuery, callback_data: WdCB, services: Services, 
     await answer_callback(query)
     await clear_state(state)
     if callback_data.a:
-        await _start_amount(query, state, callback_data.a, services)
+        await _start_charge_flow(query, state, callback_data.a, services, charge_type="expected")
         return
     items, total = await services.accounts.page(archived=False, page=callback_data.p, page_size=PAGE_SIZE)
     if not items and callback_data.p == 0:
@@ -118,7 +124,7 @@ async def cb_add(query: CallbackQuery, callback_data: WdCB, services: Services, 
     await render_screen(
         query,
         "expected-charges",
-        "<b>➕ ADD EXPECTED CHARGE</b>\nChoose the account.",
+        "<b>➕ ADD CHARGE</b>\nChoose the account.",
         pick_account_for_wd_kb(items, page=callback_data.p, total=total),
     )
 
@@ -126,16 +132,36 @@ async def cb_add(query: CallbackQuery, callback_data: WdCB, services: Services, 
 @router.callback_query(WdCB.filter(F.o == "asel"))
 async def cb_account_selected(query: CallbackQuery, callback_data: WdCB, services: Services, state: FSMContext) -> None:
     await answer_callback(query)
-    await _start_amount(query, state, callback_data.a, services)
+    await _start_charge_flow(query, state, callback_data.a, services, charge_type="expected")
 
 
-async def _start_amount(target: Message | CallbackQuery, state: FSMContext, account_id: int, services: Services) -> None:
+@router.callback_query(WdCB.filter(F.o == "ctype"))
+async def cb_charge_type(query: CallbackQuery, callback_data: WdCB, services: Services, state: FSMContext) -> None:
+    """Toggle Expected/Actual without creating a transaction."""
+    await answer_callback(query)
+    charge_type = "actual" if callback_data.s == "act" else "expected"
+    await _start_charge_flow(query, state, callback_data.a, services, charge_type=charge_type)
+
+
+async def _start_charge_flow(
+    target: Message | CallbackQuery,
+    state: FSMContext,
+    account_id: int,
+    services: Services,
+    *,
+    charge_type: str,
+) -> None:
     account = await services.accounts.get(account_id)
     await state.set_state(ChargeForm.amount)
-    await state.update_data(account_id=account.id)
-    body = f"Enter charge amount ({account.currency}):"
+    await state.update_data(account_id=account.id, charge_type=charge_type)
+    kind = "Expected" if charge_type == "expected" else "Actual"
+    body = (
+        f"<b>➕ Add Charge</b>\n"
+        f"Type: <b>{kind}</b>\n"
+        f"Enter amount ({account.currency}):"
+    )
     _, text = await account_body(services, account.id, body)
-    markup = form_kb(back=f"acc:{account.id}")
+    markup = charge_type_kb(account.id, charge_type)
     if isinstance(target, CallbackQuery):
         await render_screen(target, "expected-charges", text, markup)
     else:
@@ -146,25 +172,139 @@ async def _start_amount(target: Message | CallbackQuery, state: FSMContext, acco
 async def form_amount(message: Message, services: Services, state: FSMContext) -> None:
     data = await state.get_data()
     account_id = int(data["account_id"])
+    charge_type = str(data.get("charge_type") or "expected")
+    raw = message.text or ""
+
+    if charge_type == "actual":
+        await state.update_data(actual_raw=raw)
+        pending_count = await services.withdrawals.page(
+            status="pending", account_id=account_id, page=0, page_size=1
+        )
+        _, total = pending_count
+        if total > 0:
+            await _show_charge_link_pending(message, services, state, account_id=account_id, page=0)
+            return
+        try:
+            result = await services.withdrawals.create_actual(account_id, raw, deduct=True)
+            totals = await services.totals.for_account(account_id)
+        except (WithdrawalError, AccountError) as exc:
+            _, text = await account_body(services, account_id, f"<b>➕ Add Charge</b>\n\n{exc}")
+            await message.answer(text, reply_markup=charge_type_kb(account_id, "actual"))
+            return
+        await clear_state(state)
+        summary = (
+            f"<b>Actual charge saved</b>\n"
+            f"−{format_amount(result.withdrawal.posted_minor, result.account.currency, with_symbol=True)}\n"
+            f"Current: <b>{format_amount(totals.current_minor, totals.account.currency, with_symbol=True)}</b>\n"
+            f"Projected: {format_amount(totals.projected_minor, totals.account.currency, with_symbol=True)}"
+        )
+        _, text = await account_body(services, account_id, summary)
+        await message.answer(text)
+        await render_account(message, services, account_id)
+        return
+
     try:
-        withdrawal = await services.withdrawals.create(account_id, message.text or "")
+        withdrawal = await services.withdrawals.create(account_id, raw)
         account = await services.accounts.get(withdrawal.account_id)
-        projection = await services.withdrawals.projection(account.id)
+        totals = await services.totals.for_account(account.id)
     except (WithdrawalError, AccountError) as exc:
-        _, text = await account_body(services, account_id, f"<b>➕ ADD EXPECTED CHARGE</b>\n\n{exc}")
-        await message.answer(text, reply_markup=form_kb(back=f"acc:{account_id}"))
+        _, text = await account_body(services, account_id, f"<b>➕ Add Charge</b>\n\n{exc}")
+        await message.answer(text, reply_markup=charge_type_kb(account_id, "expected"))
         return
     await clear_state(state)
     summary = (
-        f"<b>Charge added</b>\n"
+        f"<b>Expected charge saved</b>\n"
         f"{format_amount(withdrawal.amount_minor, account.currency, with_symbol=True)} reserved.\n"
-        f"Bank balance: {format_amount(account.balance_minor, account.currency, with_symbol=True)}\n"
-        f"Pending: {format_amount(projection.pending_minor, account.currency, with_symbol=True)}\n"
-        f"Available: <b>{format_amount(projection.available_minor, account.currency, with_symbol=True)}</b>"
+        f"Current: {format_amount(totals.current_minor, account.currency, with_symbol=True)}\n"
+        f"Projected: <b>{format_amount(totals.projected_minor, account.currency, with_symbol=True)}</b>"
     )
     _, text = await account_body(services, account.id, summary)
     await message.answer(text)
     await render_account(message, services, account.id)
+
+
+async def _show_charge_link_pending(
+    target: Message | CallbackQuery,
+    services: Services,
+    state: FSMContext,
+    *,
+    account_id: int,
+    page: int,
+) -> None:
+    items, total = await services.withdrawals.page(
+        status="pending", account_id=account_id, page=page, page_size=PAGE_SIZE
+    )
+    paired = []
+    for item in items:
+        account = await services.accounts.get(item.account_id)
+        paired.append((item, account))
+    await state.set_state(ChargeForm.amount)
+    _, text = await account_body(
+        services,
+        account_id,
+        "<b>✅ Actual Charge</b>\nLink a pending expected charge, or add a new actual.",
+    )
+    markup = charge_link_pending_kb(paired, account_id=account_id, page=page, total=total)
+    if isinstance(target, CallbackQuery):
+        await render_screen(target, "expected-charges", text, markup)
+    else:
+        await target.answer(text, reply_markup=markup)
+
+
+@router.callback_query(WdCB.filter(F.o == "clinkp"))
+async def cb_charge_link_page(query: CallbackQuery, callback_data: WdCB, services: Services, state: FSMContext) -> None:
+    await answer_callback(query)
+    await _show_charge_link_pending(
+        query, services, state, account_id=callback_data.a, page=callback_data.p
+    )
+
+
+@router.callback_query(WdCB.filter(F.o == "csolo"))
+async def cb_charge_solo(query: CallbackQuery, callback_data: WdCB, services: Services, state: FSMContext) -> None:
+    await answer_callback(query)
+    data = await state.get_data()
+    raw = str(data.get("actual_raw") or "")
+    account_id = callback_data.a
+    try:
+        result = await services.withdrawals.create_actual(account_id, raw, deduct=True)
+        totals = await services.totals.for_account(account_id)
+    except (WithdrawalError, AccountError) as exc:
+        await query.answer(str(exc), show_alert=True)
+        return
+    await clear_state(state)
+    summary = (
+        f"<b>Actual charge saved</b>\n"
+        f"−{format_amount(result.withdrawal.posted_minor, result.account.currency, with_symbol=True)}\n"
+        f"Current: <b>{format_amount(totals.current_minor, totals.account.currency, with_symbol=True)}</b>"
+    )
+    if query.message:
+        await query.message.answer(summary)
+    await render_account(query, services, account_id)
+
+
+@router.callback_query(WdCB.filter(F.o == "clink"))
+async def cb_charge_link(query: CallbackQuery, callback_data: WdCB, services: Services, state: FSMContext) -> None:
+    await answer_callback(query)
+    data = await state.get_data()
+    raw = str(data.get("actual_raw") or "")
+    try:
+        result = await services.withdrawals.confirm_actual(
+            callback_data.i, raw_actual=raw or None, deduct=True
+        )
+        totals = await services.totals.for_account(result.account.id)
+    except (WithdrawalError, AccountError) as exc:
+        await query.answer(str(exc), show_alert=True)
+        return
+    await clear_state(state)
+    summary = (
+        f"<b>Expected settled as actual</b>\n"
+        f"Expected: {format_amount(result.withdrawal.amount_minor, result.account.currency, with_symbol=True)}\n"
+        f"Actual: {format_amount(result.withdrawal.posted_minor, result.account.currency, with_symbol=True)}\n"
+        f"Current: <b>{format_amount(totals.current_minor, totals.account.currency, with_symbol=True)}</b>"
+    )
+    if query.message:
+        await query.message.answer(summary)
+    await render_account(query, services, result.account.id)
 
 
 @router.callback_query(WdCB.filter(F.o == "act"))

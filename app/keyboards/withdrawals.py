@@ -12,6 +12,57 @@ from app.keyboards.common import PAGE_SIZE, _nav_row, pagination_row
 from app.services.money import format_amount
 
 
+def charge_type_kb(account_id: int, charge_type: str = "expected") -> InlineKeyboardMarkup:
+    """Mutually exclusive Expected / Actual selector. Default Expected."""
+    expected = charge_type == "expected"
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text=("✅ Expected" if expected else "◯ Expected"),
+            callback_data=WdCB(o="ctype", a=account_id, s="exp").pack(),
+        ),
+        InlineKeyboardButton(
+            text=("✅ Actual" if not expected else "◯ Actual"),
+            callback_data=WdCB(o="ctype", a=account_id, s="act").pack(),
+        ),
+    )
+    builder.row(InlineKeyboardButton(text="✖️ Cancel", callback_data=AccCB(o="view", i=account_id).pack()))
+    builder.row(InlineKeyboardButton(text="🏠 Home", callback_data=MenuCB(a="menu").pack()))
+    return builder.as_markup()
+
+
+def charge_link_pending_kb(
+    pending: list[tuple[Withdrawal, Account]],
+    *,
+    account_id: int,
+    page: int,
+    total: int,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for withdrawal, account in pending:
+        amount = format_amount(withdrawal.amount_minor, account.currency, with_symbol=True)
+        builder.button(
+            text=f"⏳ {amount}"[:64],
+            callback_data=WdCB(o="clink", i=withdrawal.id, a=account_id).pack(),
+        )
+    builder.adjust(1)
+    pagination_row(
+        builder,
+        page=page,
+        total=total,
+        page_size=PAGE_SIZE,
+        factory=lambda p: WdCB(o="clinkp", a=account_id, p=p).pack(),
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="➕ New Actual (no expected)",
+            callback_data=WdCB(o="csolo", a=account_id).pack(),
+        )
+    )
+    builder.row(InlineKeyboardButton(text="✖️ Cancel", callback_data=AccCB(o="view", i=account_id).pack()))
+    return builder.as_markup()
+
+
 def withdrawals_list_kb(
     items: list[tuple[Withdrawal, Account]],
     *,

@@ -120,12 +120,18 @@ SCHEMA_V5 = """
 CREATE INDEX IF NOT EXISTS idx_withdrawals_actual ON expected_withdrawals(actual_amount_minor);
 """
 
+SCHEMA_V6 = """
+CREATE INDEX IF NOT EXISTS idx_withdrawals_origin ON expected_withdrawals(origin);
+CREATE INDEX IF NOT EXISTS idx_balance_history_source ON balance_history(source);
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, SCHEMA_V1),
     (2, SCHEMA_V2),
     (3, SCHEMA_V3),
     (4, SCHEMA_V4),
     (5, SCHEMA_V5),
+    (6, SCHEMA_V6),
 ]
 
 
@@ -159,6 +165,8 @@ async def init_schema(conn: aiosqlite.Connection) -> None:
             await _apply_v3(conn)
         if version == 5:
             await _apply_v5(conn)
+        if version == 6:
+            await _apply_v6(conn)
         if sql.strip():
             await conn.executescript(sql)
         await conn.execute(
@@ -265,6 +273,21 @@ async def _apply_v5(conn: aiosqlite.Connection) -> None:
               AND actual_amount_minor IS NULL
             """
         )
+    await conn.commit()
+
+
+async def _apply_v6(conn: aiosqlite.Connection) -> None:
+    """Charge origin + balance-history source for ledger classification."""
+    tables = {
+        row[0]
+        for row in await (await conn.execute("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    }
+    if "expected_withdrawals" in tables:
+        await _add_column_if_missing(
+            conn, "expected_withdrawals", "origin", "TEXT NOT NULL DEFAULT 'expected'"
+        )
+    if "balance_history" in tables:
+        await _add_column_if_missing(conn, "balance_history", "source", "TEXT")
     await conn.commit()
 
 

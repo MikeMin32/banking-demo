@@ -93,11 +93,38 @@ def account_view_kb(account: Account, *, from_page: int = 0) -> InlineKeyboardMa
 
 
 def transactions_hub_kb(account_id: int) -> InlineKeyboardMarkup:
+    """Legacy hub kept for compatibility; ledger uses transactions_ledger_kb."""
     builder = InlineKeyboardBuilder()
     builder.button(text="📋 Expected Charges", callback_data=WdCB(o="alist", a=account_id, s="pending").pack())
     builder.button(text="💰 Top Ups", callback_data=TuCB(o="list", a=account_id).pack())
     builder.adjust(2)
     _nav_row(builder, back=f"acc:{account_id}")
+    return builder.as_markup()
+
+
+def transactions_ledger_kb(account_id: int, *, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(
+            InlineKeyboardButton(
+                text="⬅️ Previous",
+                callback_data=AccCB(o="txn", i=account_id, p=page - 1).pack(),
+            )
+        )
+    if page < total_pages - 1:
+        nav.append(
+            InlineKeyboardButton(
+                text="Next ➡️",
+                callback_data=AccCB(o="txn", i=account_id, p=page + 1).pack(),
+            )
+        )
+    if nav:
+        builder.row(*nav)
+    builder.row(
+        InlineKeyboardButton(text="⬅️ Account", callback_data=AccCB(o="view", i=account_id).pack()),
+        InlineKeyboardButton(text="🏠 Home", callback_data=MenuCB(a="menu").pack()),
+    )
     return builder.as_markup()
 
 

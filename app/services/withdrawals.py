@@ -85,6 +85,7 @@ class WithdrawalService:
             created_at=utc_now_iso(),
             expected_date=date_value,
             description=desc,
+            origin="expected",
         )
 
     async def get(self, withdrawal_id: int) -> Withdrawal:
@@ -196,6 +197,7 @@ class WithdrawalService:
                     old_balance_minor=old_balance,
                     new_balance_minor=new_balance,
                     recorded_at=now,
+                    source="charge",
                 )
             updated_account = await self.accounts.set_balance(
                 account.id,
@@ -248,6 +250,7 @@ class WithdrawalService:
             completed_at=now,
             applied_to_balance=0,
             actual_amount_minor=amount_minor,
+            origin="actual",
         )
         applied = await self.withdrawals.mark_applied_if_needed(withdrawal.id, now)
         new_balance = old_balance
@@ -260,6 +263,7 @@ class WithdrawalService:
                     old_balance_minor=old_balance,
                     new_balance_minor=new_balance,
                     recorded_at=now,
+                    source="charge",
                 )
             updated = await self.accounts.set_balance(
                 account.id,

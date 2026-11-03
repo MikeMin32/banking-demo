@@ -22,6 +22,7 @@ class Withdrawal:
     updated_at: str
     applied_to_balance: bool
     actual_amount_minor: int | None = None
+    origin: str = "expected"
 
     @property
     def posted_minor(self) -> int:
@@ -30,6 +31,10 @@ class Withdrawal:
             return int(self.actual_amount_minor)
         return int(self.amount_minor)
 
+    @property
+    def is_standalone_actual(self) -> bool:
+        return self.origin == "actual"
+
     @classmethod
     def from_row(cls, row) -> Withdrawal:
         keys = set(row.keys())
@@ -37,6 +42,9 @@ class Withdrawal:
         actual = None
         if "actual_amount_minor" in keys and row["actual_amount_minor"] is not None:
             actual = int(row["actual_amount_minor"])
+        origin = "expected"
+        if "origin" in keys and row["origin"]:
+            origin = str(row["origin"])
         return cls(
             id=row["id"],
             account_id=row["account_id"],
@@ -49,6 +57,7 @@ class Withdrawal:
             updated_at=row["updated_at"],
             applied_to_balance=bool(applied),
             actual_amount_minor=actual,
+            origin=origin,
         )
 
 
@@ -68,16 +77,19 @@ class WithdrawalRepository:
         completed_at: str | None = None,
         applied_to_balance: int = 0,
         actual_amount_minor: int | None = None,
+        origin: str = "expected",
     ) -> Withdrawal:
         if status not in VALID_STATUSES:
             raise ValueError(f"Invalid withdrawal status: {status}")
+        if origin not in {"expected", "actual"}:
+            raise ValueError(f"Invalid withdrawal origin: {origin}")
         cursor = await self.db.execute(
             """
             INSERT INTO expected_withdrawals (
                 account_id, amount_minor, expected_date, description,
                 status, created_at, completed_at, updated_at, applied_to_balance,
-                actual_amount_minor
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                actual_amount_minor, origin
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 account_id,
@@ -90,6 +102,7 @@ class WithdrawalRepository:
                 created_at,
                 applied_to_balance,
                 actual_amount_minor,
+                origin,
             ),
         )
         withdrawal = await self.get(int(cursor.lastrowid))
@@ -157,6 +170,17 @@ class WithdrawalRepository:
             )
         else:
             rows = await self.db.fetchall("SELECT * FROM expected_withdrawals ORDER BY id ASC")
+        return [Withdrawal.from_row(row) for row in rows]
+
+    async def list_all_for_account(self, account_id: int) -> list[Withdrawal]:
+        rows = await self.db.fetchall(
+            """
+            SELECT * FROM expected_withdrawals
+            WHERE account_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (account_id,),
+        )
         return [Withdrawal.from_row(row) for row in rows]
 
     async def pending_total_for_account(self, account_id: int) -> int:

@@ -145,9 +145,25 @@ async def cb_reverse(query: CallbackQuery, callback_data: TuCB, services: Servic
 
 @router.callback_query(AccCB.filter(F.o == "txn"))
 async def cb_transactions(query: CallbackQuery, callback_data: AccCB, services: Services, state: FSMContext) -> None:
-    from app.keyboards.accounts import transactions_hub_kb
+    from app.keyboards.accounts import transactions_ledger_kb
+    from app.services.ledger import LEDGER_PAGE_SIZE, format_ledger_message
 
     await answer_callback(query)
     await clear_state(state)
-    _, text = await account_body(services, callback_data.i, "Choose a list:")
-    await render_screen(query, "transactions", text, transactions_hub_kb(callback_data.i))
+    try:
+        page = await services.ledger.page(
+            callback_data.i,
+            page=callback_data.p,
+            page_size=LEDGER_PAGE_SIZE,
+            tz=services.tz,
+        )
+    except AccountError as exc:
+        await query.answer(str(exc), show_alert=True)
+        return
+    text = format_ledger_message(page, services.tz)
+    await render_screen(
+        query,
+        "transactions",
+        text,
+        transactions_ledger_kb(callback_data.i, page=page.page, total_pages=page.total_pages),
+    )

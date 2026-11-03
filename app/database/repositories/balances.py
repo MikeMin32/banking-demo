@@ -14,15 +14,19 @@ class BalanceHistoryEntry:
     old_balance_minor: int
     new_balance_minor: int
     recorded_at: str
+    source: str | None = None
 
     @classmethod
     def from_row(cls, row) -> BalanceHistoryEntry:
+        keys = set(row.keys())
+        source = row["source"] if "source" in keys else None
         return cls(
             id=row["id"],
             account_id=row["account_id"],
             old_balance_minor=int(row["old_balance_minor"]),
             new_balance_minor=int(row["new_balance_minor"]),
             recorded_at=row["recorded_at"],
+            source=source,
         )
 
 
@@ -37,14 +41,15 @@ class BalanceRepository:
         old_balance_minor: int,
         new_balance_minor: int,
         recorded_at: str,
+        source: str | None = None,
     ) -> BalanceHistoryEntry:
         cursor = await self.db.execute(
             """
             INSERT INTO balance_history (
-                account_id, old_balance_minor, new_balance_minor, recorded_at
-            ) VALUES (?, ?, ?, ?)
+                account_id, old_balance_minor, new_balance_minor, recorded_at, source
+            ) VALUES (?, ?, ?, ?, ?)
             """,
-            (account_id, old_balance_minor, new_balance_minor, recorded_at),
+            (account_id, old_balance_minor, new_balance_minor, recorded_at, source),
         )
         entry_id = int(cursor.lastrowid)
         row = await self.db.fetchone("SELECT * FROM balance_history WHERE id = ?", (entry_id,))
@@ -82,5 +87,16 @@ class BalanceRepository:
     async def list_all(self) -> list[BalanceHistoryEntry]:
         rows = await self.db.fetchall(
             "SELECT * FROM balance_history ORDER BY recorded_at DESC, id DESC"
+        )
+        return [BalanceHistoryEntry.from_row(row) for row in rows]
+
+    async def list_manual_for_account(self, account_id: int) -> list[BalanceHistoryEntry]:
+        rows = await self.db.fetchall(
+            """
+            SELECT * FROM balance_history
+            WHERE account_id = ? AND source = 'manual'
+            ORDER BY recorded_at DESC, id DESC
+            """,
+            (account_id,),
         )
         return [BalanceHistoryEntry.from_row(row) for row in rows]

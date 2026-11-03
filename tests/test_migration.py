@@ -154,7 +154,7 @@ async def test_v4_adds_top_ups_table(tmp_path) -> None:
     await db.connect()
     await db.init()
     version = await db.fetchone("SELECT MAX(version) AS v FROM schema_migrations")
-    assert int(version["v"]) == 5
+    assert int(version["v"]) == 6
     table = await db.fetchone(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='top_ups'"
     )
@@ -165,4 +165,8 @@ async def test_v4_adds_top_ups_table(tmp_path) -> None:
     wd_cols = await db.fetchall("PRAGMA table_info(expected_withdrawals)")
     wd_names = {row["name"] for row in wd_cols}
     assert "actual_amount_minor" in wd_names
+    assert "origin" in wd_names
+    hist_cols = await db.fetchall("PRAGMA table_info(balance_history)")
+    hist_names = {row["name"] for row in hist_cols}
+    assert "source" in hist_names
     await db.close()

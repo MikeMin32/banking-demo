@@ -21,6 +21,7 @@ from app.services.credentials import CredentialVault
 from app.services.dashboard import DashboardService
 from app.services.exports import ExportService
 from app.services.reminders import ReminderService
+from app.services.ledger import LedgerService
 from app.services.topups import TopUpService
 from app.services.totals import TotalsService
 from app.services.withdrawals import WithdrawalService
@@ -35,6 +36,7 @@ class Services:
     withdrawals: WithdrawalService
     topups: TopUpService
     totals: TotalsService
+    ledger: LedgerService
     dashboard: DashboardService
     reminders: ReminderService
     exports: ExportService
@@ -56,6 +58,7 @@ def build_services(db: Database, settings: Settings) -> Services:
     log_repo = ReminderLogRepository(db)
     dashboard = DashboardService(account_repo, withdrawal_repo)
     vault = CredentialVault(settings.account_credentials_key)
+    totals = TotalsService(account_repo, withdrawal_repo, topup_repo)
     return Services(
         settings=settings,
         db=db,
@@ -63,7 +66,8 @@ def build_services(db: Database, settings: Settings) -> Services:
         balances=BalanceService(account_repo, balance_repo),
         withdrawals=WithdrawalService(account_repo, withdrawal_repo, balance_repo),
         topups=TopUpService(account_repo, topup_repo, balance_repo),
-        totals=TotalsService(account_repo, withdrawal_repo, topup_repo),
+        totals=totals,
+        ledger=LedgerService(account_repo, withdrawal_repo, topup_repo, balance_repo, totals),
         dashboard=dashboard,
         reminders=ReminderService(settings_repo, log_repo, dashboard, settings.tz),
         exports=ExportService(account_repo, balance_repo, withdrawal_repo),

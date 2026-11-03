@@ -81,6 +81,7 @@ class TopUpService:
             old_balance_minor=old_minor,
             new_balance_minor=new_minor,
             recorded_at=now,
+            source="topup",
         )
         updated = await self.accounts.set_balance(
             account.id,
@@ -150,6 +151,7 @@ class TopUpService:
             old_balance_minor=old_minor,
             new_balance_minor=new_minor,
             recorded_at=now,
+            source="topup_reverse",
         )
         updated = await self.accounts.set_balance(
             account.id,

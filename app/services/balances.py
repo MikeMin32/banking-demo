@@ -43,6 +43,7 @@ class BalanceService:
             old_balance_minor=old_minor,
             new_balance_minor=new_minor,
             recorded_at=now,
+            source="manual",
         )
         updated = await self.accounts.set_balance(
             account.id,

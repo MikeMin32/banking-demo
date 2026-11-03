@@ -101,6 +101,17 @@ class TopUpRepository:
         )
         return [TopUp.from_row(row) for row in rows]
 
+    async def list_all_for_account(self, account_id: int) -> list[TopUp]:
+        rows = await self.db.fetchall(
+            """
+            SELECT * FROM top_ups
+            WHERE account_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (account_id,),
+        )
+        return [TopUp.from_row(row) for row in rows]
+
     async def count_for_account(self, account_id: int) -> int:
         row = await self.db.fetchone(
             "SELECT COUNT(*) AS n FROM top_ups WHERE account_id = ?",
