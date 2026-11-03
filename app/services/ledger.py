@@ -158,33 +158,57 @@ class LedgerService:
 
 
 def format_ledger_message(page: LedgerPage, tz: ZoneInfo) -> str:
+    """Assemble the Transactions caption with explicit blank-line spacing.
+
+    Spacing contract (blank lines = empty lines between content):
+    1 blank after account identity
+    0 between Current/Projected
+    1 between balances and In/Out/Expected
+    0 inside In/Out/Expected
+    2 between Expected and first date heading
+    1 between date groups
+    0 between rows of the same date
+    1 before Page X / Y
+    """
     account = page.account
     totals = page.totals
     currency = account.currency
-    line = (
+    header = (
         f"🏦 <b>{_esc(account.line_label.upper())} · {_esc(account.banking_provider.upper())}</b>\n"
+        f"\n"
         f"💰 Current: {format_amount(totals.current_minor, currency, with_symbol=True)}\n"
         f"📊 Projected: {format_amount(totals.projected_minor, currency, with_symbol=True)}\n"
+        f"\n"
         f"🟢 In: {format_amount(totals.in_minor, currency, with_symbol=True)}\n"
         f"🔴 Out: {format_amount(totals.out_minor, currency, with_symbol=True)}\n"
         f"⏳ Expected: {format_amount(totals.expected_minor, currency, with_symbol=True)}"
     )
+    page_line = f"Page {page.page + 1} / {page.total_pages}"
     if not page.events:
-        return f"{line}\n\nNo transactions yet.\nPage {page.page + 1} / {page.total_pages}"
+        # Two blank lines after Expected, then empty-state, then one blank before page.
+        return f"{header}\n\n\nNo transactions yet.\n\n{page_line}"
 
-    chunks: list[str] = [line]
-    current_date = None
+    date_groups: list[str] = []
+    current_date: str | None = None
+    rows: list[str] = []
     for event in page.events:
         local = to_local(event.at, tz)
         if local is None:
             continue
         date_label = local.strftime("%d %b %Y")
         if date_label != current_date:
+            if current_date is not None and rows:
+                date_groups.append("\n".join(rows))
             current_date = date_label
-            chunks.append(date_label)
-        chunks.append(_format_event_row(event, currency, local.strftime("%H:%M")))
-    chunks.append(f"Page {page.page + 1} / {page.total_pages}")
-    return "\n".join(chunks)
+            rows = [f"<b>{date_label}</b>"]
+        rows.append(_format_event_row(event, currency, local.strftime("%H:%M")))
+    if rows:
+        date_groups.append("\n".join(rows))
+
+    # Two blank lines after Expected (\n\n\n), one blank between date groups (\n\n),
+    # one blank before pagination (\n\n).
+    body = "\n\n".join(date_groups)
+    return f"{header}\n\n\n{body}\n\n{page_line}"
 
 
 def _format_event_row(event: LedgerEvent, currency: str, hhmm: str) -> str:

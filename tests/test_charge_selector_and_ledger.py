@@ -109,3 +109,109 @@ async def test_ledger_newest_first_and_pagination(services: Services) -> None:
     assert len(page0.events) == LEDGER_PAGE_SIZE
     assert page0.total_pages >= 2
     assert page0.events[0].at >= page0.events[-1].at
+
+
+def test_ledger_spacing_blank_lines() -> None:
+    """Exact blank-line counts between Transactions sections."""
+    from datetime import datetime, timezone
+
+    from app.services.ledger import LedgerEvent, LedgerPage, format_ledger_message
+    from app.services.totals import AccountTotals
+
+    class Acc:
+        line_label = "Automation Direct"
+        banking_provider = "Airwallex"
+        currency = "USD"
+        balance_minor = 50_000
+
+    totals = AccountTotals(
+        account=Acc(),  # type: ignore[arg-type]
+        in_minor=0,
+        out_minor=0,
+        expected_minor=92_000,
+        current_minor=50_000,
+        projected_minor=-42_000,
+    )
+    events = [
+        LedgerEvent(
+            kind="expected",
+            at=datetime(2026, 11, 3, 5, 57, tzinfo=timezone.utc),
+            sort_id=4,
+            amount_minor=40_000,
+        ),
+        LedgerEvent(
+            kind="expected",
+            at=datetime(2026, 11, 3, 5, 41, tzinfo=timezone.utc),
+            sort_id=3,
+            amount_minor=15_000,
+        ),
+        LedgerEvent(
+            kind="expected",
+            at=datetime(2026, 10, 20, 0, 34, tzinfo=timezone.utc),
+            sort_id=2,
+            amount_minor=150_000,
+        ),
+        LedgerEvent(
+            kind="expected",
+            at=datetime(2026, 10, 19, 0, 34, tzinfo=timezone.utc),
+            sort_id=1,
+            amount_minor=95_000,
+        ),
+    ]
+    page = LedgerPage(
+        account=Acc(),  # type: ignore[arg-type]
+        totals=totals,
+        events=events,
+        page=0,
+        total_pages=1,
+        total_events=len(events),
+    )
+    text = format_ledger_message(page, ZoneInfo("Europe/Kyiv"))
+    lines = text.split("\n")
+
+    # Find key anchors by content, then count blank lines between them.
+    def idx(prefix: str) -> int:
+        for i, line in enumerate(lines):
+            if line.startswith(prefix) or prefix in line:
+                return i
+        raise AssertionError(f"missing line starting with {prefix!r} in {lines!r}")
+
+    i_name = idx("🏦")
+    i_current = idx("💰 Current:")
+    i_projected = idx("📊 Projected:")
+    i_in = idx("🟢 In:")
+    i_out = idx("🔴 Out:")
+    i_expected = idx("⏳ Expected:")
+    i_date1 = next(i for i, line in enumerate(lines) if "Nov 2026" in line and line.startswith("<b>"))
+    i_date2 = next(i for i, line in enumerate(lines) if "Oct 2026" in line and "20" in line and line.startswith("<b>"))
+    i_date3 = next(i for i, line in enumerate(lines) if "Oct 2026" in line and "19" in line and line.startswith("<b>"))
+    i_page = idx("Page ")
+
+    def blank_count(start: int, end: int) -> int:
+        return sum(1 for line in lines[start + 1 : end] if line == "")
+
+    assert blank_count(i_name, i_current) == 1
+    assert blank_count(i_current, i_projected) == 0
+    assert blank_count(i_projected, i_in) == 1
+    assert blank_count(i_in, i_out) == 0
+    assert blank_count(i_out, i_expected) == 0
+    assert blank_count(i_expected, i_date1) == 2
+    assert blank_count(i_date1, i_date2) >= 1  # includes txn rows; check between groups via join
+    # Between last txn of date1 group and date2 heading: exactly one blank.
+    # Find last txn before date2.
+    last_before_date2 = i_date2 - 1
+    while last_before_date2 > i_date1 and lines[last_before_date2] == "":
+        last_before_date2 -= 1
+    assert blank_count(last_before_date2, i_date2) == 1
+    last_before_date3 = i_date3 - 1
+    while last_before_date3 > i_date2 and lines[last_before_date3] == "":
+        last_before_date3 -= 1
+    assert blank_count(last_before_date3, i_date3) == 1
+    # No blanks between first date heading and its first txn.
+    assert lines[i_date1 + 1] != ""
+    # One blank before pagination.
+    last_content = i_page - 1
+    while last_content > 0 and lines[last_content] == "":
+        last_content -= 1
+    assert blank_count(last_content, i_page) == 1
+    assert "(strikethrough)" not in text
