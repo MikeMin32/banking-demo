@@ -10,7 +10,6 @@ from aiogram.types import CallbackQuery, Chat, Message, TelegramObject, Update, 
 
 from app.services.container import Services
 
-UNAUTHORIZED_TEXT = "This bot is private. You are not authorized to use it."
 PRIVATE_ONLY_TEXT = "Please use this bot in a private chat."
 
 
@@ -48,7 +47,8 @@ class AuthMiddleware(BaseMiddleware):
         chat_type = getattr(chat, "type", None)
 
         if not self.services.auth.is_authorized(user_id):
-            await _reject(event, UNAUTHORIZED_TEXT)
+            # Silent ignore: no replies, alerts, or access hints.
+            await _ack_callback_quietly(event)
             return None
         if not self.services.auth.is_private_chat(chat_type):
             await _reject(event, PRIVATE_ONLY_TEXT)
@@ -58,6 +58,17 @@ class AuthMiddleware(BaseMiddleware):
         data["is_owner"] = self.services.auth.is_owner(user_id)
         data["can_view_credentials"] = self.services.auth.can_view_credentials(user_id)
         return await handler(event, data)
+
+
+async def _ack_callback_quietly(event: TelegramObject) -> None:
+    """Stop Telegram's callback spinner without showing notification text."""
+    try:
+        if isinstance(event, CallbackQuery):
+            await event.answer()
+        elif isinstance(event, Update) and event.callback_query:
+            await event.callback_query.answer()
+    except Exception:
+        return
 
 
 async def _reject(event: TelegramObject, text: str) -> None:

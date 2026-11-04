@@ -105,7 +105,7 @@ If `ACCOUNT_CREDENTIALS_KEY` is missing, accounts can still be created without a
 python -m app.main
 ```
 
-Open Telegram, send `/start` to the bot in a **private chat**. Unauthorized users get a generic rejection and never see account data.
+Open Telegram, send `/start` to the bot in a **private chat**. Unauthorized users are ignored silently and never see account data.
 
 ## Docker (local or VPS)
 
