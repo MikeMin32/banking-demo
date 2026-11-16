@@ -52,7 +52,7 @@ def mark_all_confirm_kb() -> InlineKeyboardMarkup:
         yes_data=SetCB(o="mac").pack(),
         no_data=MenuCB(a="menu").pack(),
         yes_text="✅ Yes, mark all checked",
-        no_text="✖️ Cancel",
+        no_text="❌ Cancel",
     )
 
 

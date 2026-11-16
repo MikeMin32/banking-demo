@@ -194,44 +194,44 @@ def preview_actions_kb(account: Account | None) -> InlineKeyboardMarkup:
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="Update Balance",
+                        text="💰 Update Balance",
                         callback_data=AccCB(o="bal", i=account.id).pack(),
                         style="primary",
                     ),
                     InlineKeyboardButton(
-                        text="Transactions",
+                        text="📋 Transactions",
                         callback_data=AccCB(o="txn", i=account.id).pack(),
                     ),
                 ],
                 [
                     InlineKeyboardButton(
-                        text="Add Charge",
+                        text="➕ Add Charge",
                         callback_data=WdCB(o="add", a=account.id).pack(),
                         style="danger",
                     ),
                     InlineKeyboardButton(
-                        text="Deposit",
+                        text="💵 Deposit",
                         callback_data=TuCB(o="add", a=account.id).pack(),
                         style="success",
                     ),
                 ],
                 [
                     InlineKeyboardButton(
-                        text="Login Details",
+                        text="🔐 Login Details",
                         callback_data=AccCB(o="log", i=account.id).pack(),
                     ),
                     InlineKeyboardButton(
-                        text="Edit Account",
+                        text="✏️ Edit Account",
                         callback_data=AccCB(o="edt", i=account.id).pack(),
                     ),
                 ],
                 [
                     InlineKeyboardButton(
-                        text="Back",
+                        text="⬅️ Back",
                         callback_data=AccCB(o=back_op, p=0).pack(),
                     ),
                     InlineKeyboardButton(
-                        text="Home",
+                        text="🏠 Home",
                         callback_data=MenuCB(a="menu").pack(),
                     ),
                 ],
@@ -241,20 +241,20 @@ def preview_actions_kb(account: Account | None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Update Balance", callback_data="uip:noop", style="primary"),
-                InlineKeyboardButton(text="Transactions", callback_data="uip:noop"),
+                InlineKeyboardButton(text="💰 Update Balance", callback_data="uip:noop", style="primary"),
+                InlineKeyboardButton(text="📋 Transactions", callback_data="uip:noop"),
             ],
             [
-                InlineKeyboardButton(text="Add Charge", callback_data="uip:noop", style="danger"),
-                InlineKeyboardButton(text="Deposit", callback_data="uip:noop", style="success"),
+                InlineKeyboardButton(text="➕ Add Charge", callback_data="uip:noop", style="danger"),
+                InlineKeyboardButton(text="💵 Deposit", callback_data="uip:noop", style="success"),
             ],
             [
-                InlineKeyboardButton(text="Login Details", callback_data="uip:noop"),
-                InlineKeyboardButton(text="Edit Account", callback_data="uip:noop"),
+                InlineKeyboardButton(text="🔐 Login Details", callback_data="uip:noop"),
+                InlineKeyboardButton(text="✏️ Edit Account", callback_data="uip:noop"),
             ],
             [
-                InlineKeyboardButton(text="Back", callback_data="uip:menu"),
-                InlineKeyboardButton(text="Home", callback_data=MenuCB(a="menu").pack()),
+                InlineKeyboardButton(text="⬅️ Back", callback_data="uip:menu"),
+                InlineKeyboardButton(text="🏠 Home", callback_data=MenuCB(a="menu").pack()),
             ],
         ]
     )

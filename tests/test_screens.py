@@ -12,11 +12,11 @@ def test_main_menu_has_quick_update() -> None:
     markup = main_menu_kb()
     labels = [button.text for row in markup.inline_keyboard for button in row]
     assert labels == [
-        "Bank Accounts",
-        "Balance Summary",
-        "Add Account",
-        "Settings",
-        "Quick Update",
+        "🏦 Accounts",
+        "📊 Balance Summary",
+        "➕ Add Account",
+        "⚙️ Settings",
+        "⚡ Quick Update",
     ]
 
 
@@ -33,6 +33,8 @@ def test_account_button_includes_available_balance() -> None:
     assert "VMOS" in label
     assert "$1,250.00" in label
     assert len(label) <= 64
+    # List keyboards prefix a single bank/archive emoji without breaking the 64-char cap.
+    assert len(f"🏦 {label}"[:64]) <= 64
 
 
 def test_callback_routing_prefixes() -> None:

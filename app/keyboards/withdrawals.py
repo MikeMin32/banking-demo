@@ -26,7 +26,7 @@ def charge_type_kb(account_id: int, charge_type: str = "expected") -> InlineKeyb
             callback_data=WdCB(o="ctype", a=account_id, s="act").pack(),
         ),
     )
-    builder.row(InlineKeyboardButton(text="✖️ Cancel", callback_data=AccCB(o="view", i=account_id).pack()))
+    builder.row(InlineKeyboardButton(text="❌ Cancel", callback_data=AccCB(o="view", i=account_id).pack()))
     builder.row(InlineKeyboardButton(text="🏠 Home", callback_data=MenuCB(a="menu").pack()))
     return builder.as_markup()
 
@@ -59,7 +59,7 @@ def charge_link_pending_kb(
             callback_data=WdCB(o="csolo", a=account_id).pack(),
         )
     )
-    builder.row(InlineKeyboardButton(text="✖️ Cancel", callback_data=AccCB(o="view", i=account_id).pack()))
+    builder.row(InlineKeyboardButton(text="❌ Cancel", callback_data=AccCB(o="view", i=account_id).pack()))
     return builder.as_markup()
 
 
@@ -125,7 +125,7 @@ def withdrawal_view_kb(withdrawal: Withdrawal, *, status: str, account_id: int, 
 def pick_account_for_wd_kb(accounts: list[Account], *, page: int, total: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for account in accounts:
-        label = f"{account.line_label} · {account.currency}"[:64]
+        label = f"🏦 {account.line_label} · {account.currency}"[:64]
         builder.button(text=label, callback_data=WdCB(o="asel", a=account.id).pack())
     builder.adjust(1)
     pagination_row(

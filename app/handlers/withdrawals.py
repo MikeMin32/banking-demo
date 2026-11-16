@@ -372,13 +372,13 @@ async def cb_actual_start(query: CallbackQuery, callback_data: WdCB, services: S
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(
-            text="Use expected amount",
+            text="✅ Use expected amount",
             callback_data=WdCB(o="ause", i=withdrawal.id, a=account.id, s=callback_data.s).pack(),
         )
     )
     builder.row(
         InlineKeyboardButton(
-            text="✖️ Cancel",
+            text="❌ Cancel",
             callback_data=WdCB(o="view", i=withdrawal.id, a=callback_data.a, s=callback_data.s).pack(),
         )
     )
@@ -451,7 +451,7 @@ async def _prompt_actual_apply(
     )
     builder.row(
         InlineKeyboardButton(
-            text="✖️ Cancel",
+            text="❌ Cancel",
             callback_data=WdCB(o="view", i=withdrawal_id, a=account_id, s=status).pack(),
         )
     )

@@ -31,7 +31,7 @@ def quick_pick_account_kb(
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for account in accounts:
-        label = f"{account.line_label} · {account.currency}"[:64]
+        label = f"🏦 {account.line_label} · {account.currency}"[:64]
         builder.button(text=label, callback_data=QuCB(o="pick", a=account.id, i=_op_code(op)).pack())
     builder.adjust(1)
     pagination_row(
@@ -101,7 +101,7 @@ def actual_confirm_kb(*, account_id: int, withdrawal_id: int = 0, standalone: bo
                 callback_data=QuCB(o="alr", a=account_id, i=withdrawal_id).pack(),
             )
         )
-    builder.row(InlineKeyboardButton(text="✖️ Cancel", callback_data=MenuCB(a="quick").pack()))
+    builder.row(InlineKeyboardButton(text="❌ Cancel", callback_data=MenuCB(a="quick").pack()))
     return builder.as_markup()
 
 
@@ -109,11 +109,11 @@ def use_expected_kb(*, account_id: int, withdrawal_id: int) -> InlineKeyboardMar
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(
-            text="Use expected amount",
+            text="✅ Use expected amount",
             callback_data=QuCB(o="use", a=account_id, i=withdrawal_id).pack(),
         )
     )
-    builder.row(InlineKeyboardButton(text="✖️ Cancel", callback_data=MenuCB(a="quick").pack()))
+    builder.row(InlineKeyboardButton(text="❌ Cancel", callback_data=MenuCB(a="quick").pack()))
     return builder.as_markup()
 
 

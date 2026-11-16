@@ -133,11 +133,11 @@ def test_preview_keyboards() -> None:
 
     stub = preview_actions_kb(None)
     stub_labels = [[btn.text for btn in row] for row in stub.inline_keyboard]
-    assert stub_labels[0] == ["Update Balance", "Transactions"]
-    assert stub_labels[1] == ["Add Charge", "Deposit"]
-    assert stub_labels[2] == ["Login Details", "Edit Account"]
-    assert stub_labels[3][0] == "Back"
-    assert stub_labels[3][1] == "Home"
+    assert stub_labels[0] == ["💰 Update Balance", "📋 Transactions"]
+    assert stub_labels[1] == ["➕ Add Charge", "💵 Deposit"]
+    assert stub_labels[2] == ["🔐 Login Details", "✏️ Edit Account"]
+    assert stub_labels[3][0] == "⬅️ Back"
+    assert stub_labels[3][1] == "🏠 Home"
     assert all(btn.callback_data.startswith("uip:") or btn.callback_data.startswith("m:") for row in stub.inline_keyboard for btn in row)
 
 
