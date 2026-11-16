@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery, Message
 
 from app.keyboards.common import main_menu_kb
 from app.services.container import Services
+from app.ui.screens import dashboard_html
 from app.utils.formatting import dashboard_text
 from app.utils.screens import render_screen
 from app.utils.telegram import clear_state
@@ -20,7 +21,13 @@ async def show_dashboard(
     await clear_state(state)
     reminder = await services.reminders.get_settings()
     snap = await services.dashboard.snapshot(stale_hours=reminder.stale_hours)
-    await render_screen(target, "dashboard", dashboard_text(snap, services.tz), main_menu_kb())
+    await render_screen(
+        target,
+        "dashboard",
+        dashboard_text(snap, services.tz),
+        main_menu_kb(),
+        html=dashboard_html(snap),
+    )
 
 
 async def current_account_id(state: FSMContext) -> int | None:

@@ -70,26 +70,55 @@ def accounts_list_kb(
 
 
 def account_view_kb(account: Account, *, from_page: int = 0) -> InlineKeyboardMarkup:
-    # Exact 4×2 layout for mobile. Short "Balance" label avoids iOS truncation.
+    # Exact 4×2 layout for mobile. Native button styles where supported.
     back_op = "alst" if account.is_archived else "list"
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="💵 Balance", callback_data=AccCB(o="bal", i=account.id).pack()),
-        InlineKeyboardButton(text="📋 Transactions", callback_data=AccCB(o="txn", i=account.id).pack()),
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Update Balance",
+                    callback_data=AccCB(o="bal", i=account.id).pack(),
+                    style="primary",
+                ),
+                InlineKeyboardButton(
+                    text="Transactions",
+                    callback_data=AccCB(o="txn", i=account.id).pack(),
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Add Charge",
+                    callback_data=WdCB(o="add", a=account.id).pack(),
+                    style="danger",
+                ),
+                InlineKeyboardButton(
+                    text="Deposit",
+                    callback_data=TuCB(o="add", a=account.id).pack(),
+                    style="success",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Login Details",
+                    callback_data=AccCB(o="log", i=account.id).pack(),
+                ),
+                InlineKeyboardButton(
+                    text="Edit Account",
+                    callback_data=AccCB(o="edt", i=account.id).pack(),
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Back",
+                    callback_data=AccCB(o=back_op, p=from_page).pack(),
+                ),
+                InlineKeyboardButton(
+                    text="Home",
+                    callback_data=MenuCB(a="menu").pack(),
+                ),
+            ],
+        ]
     )
-    builder.row(
-        InlineKeyboardButton(text="➕ Add Charge", callback_data=WdCB(o="add", a=account.id).pack()),
-        InlineKeyboardButton(text="💰 Deposit", callback_data=TuCB(o="add", a=account.id).pack()),
-    )
-    builder.row(
-        InlineKeyboardButton(text="🔐 Login Details", callback_data=AccCB(o="log", i=account.id).pack()),
-        InlineKeyboardButton(text="✏️ Edit Account", callback_data=AccCB(o="edt", i=account.id).pack()),
-    )
-    builder.row(
-        InlineKeyboardButton(text="⬅️ Back", callback_data=AccCB(o=back_op, p=from_page).pack()),
-        InlineKeyboardButton(text="🏠 Home", callback_data=MenuCB(a="menu").pack()),
-    )
-    return builder.as_markup()
 
 
 def transactions_hub_kb(account_id: int) -> InlineKeyboardMarkup:

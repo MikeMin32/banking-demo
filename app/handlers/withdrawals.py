@@ -61,11 +61,32 @@ async def _show_list(
             text = f"{title} charges: none yet."
         else:
             text = f"{title} charges:"
+    from app.services.money import format_amount
+    from app.ui.screens import list_items_html
+
+    items_html = list_items_html(
+        title=f"{title} charges",
+        subtitle="Select a charge below" if paired else "Nothing here yet",
+        items=[
+            (
+                format_amount(
+                    item.posted_minor if filter_status == "completed" else item.amount_minor,
+                    account.currency,
+                    with_symbol=True,
+                ),
+                account.line_label,
+                item.status,
+            )
+            for item, account in paired
+        ],
+        empty_message=f"No {title.lower()} charges.",
+    )
     await render_screen(
         target,
         "expected-charges",
         text,
         withdrawals_list_kb(paired, status=filter_status, page=page, total=total, account_id=account_id),
+        html=items_html,
     )
 
 
@@ -102,11 +123,31 @@ async def cb_view(query: CallbackQuery, callback_data: WdCB, services: Services,
         account.id,
         withdrawal_section(withdrawal, account, services.tz),
     )
+    from app.services.money import format_amount
+    from app.ui.screens import detail_html
+    from app.utils.time import format_dt
+
+    pairs = [
+        ("Status", withdrawal.status),
+        ("Amount", format_amount(withdrawal.amount_minor, account.currency, with_symbol=True)),
+    ]
+    if withdrawal.actual_amount_minor is not None:
+        pairs.append(
+            ("Actual", format_amount(withdrawal.actual_amount_minor, account.currency, with_symbol=True))
+        )
+    pairs.append(("Added", format_dt(withdrawal.created_at, services.tz)))
+    if withdrawal.completed_at:
+        pairs.append(("Closed", format_dt(withdrawal.completed_at, services.tz)))
     await render_screen(
         query,
         "expected-charges",
         text,
         withdrawal_view_kb(withdrawal, status=callback_data.s, account_id=callback_data.a, page=callback_data.p),
+        html=detail_html(
+            title=account.line_label,
+            subtitle=f"{account.banking_provider} · Charge",
+            pairs=pairs,
+        ),
     )
 
 

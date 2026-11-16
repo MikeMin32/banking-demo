@@ -181,86 +181,10 @@ def build_rich_account_details(snap: AccountDetailsSnapshot) -> InputRichMessage
 
 
 def build_widget_account_details(snap: AccountDetailsSnapshot) -> str:
-    """Prototype B — sandboxed HTML widget with theme CSS variables."""
-    brand = escape(BRAND)
-    line = escape(snap.line_name)
-    subtitle = escape(snap.subtitle)
-    current = escape(snap.money(snap.current_minor))
-    projected = escape(snap.money(snap.projected_minor))
-    expected = escape(snap.money(snap.expected_minor))
-    inn = escape(snap.money(snap.in_minor))
-    out = escape(snap.money(snap.out_minor))
-    vm = escape(snap.vm)
-    stored = escape(snap.stored)
-    iban = escape(snap.iban)
-    bin_v = escape(snap.bin)
-    updated = escape(snap.updated_label)
-    archived = (
-        '<div class="meta">Archived</div>' if snap.is_archived else ""
-    )
+    """Prototype B — shared Widget design-system Account Details layout."""
+    from app.ui.screens import account_details_html
 
-    # Compact inline CSS; no external assets; theme vars for light/dark.
-    html = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-*{{box-sizing:border-box}}
-html,body{{margin:0;padding:0;font:14px/1.35 system-ui,sans-serif;
-color:var(--tg-theme-text-color,#e7e7e7);
-background:var(--tg-theme-bg-color,#1c1c1e)}}
-.wrap{{padding:12px 12px max(12px,var(--tg-content-safe-area-inset-bottom,0));
-max-width:430px;min-width:280px}}
-.brand{{font-size:11px;letter-spacing:.08em;font-weight:700;
-color:var(--tg-theme-accent-text-color,#3dd68c);text-transform:uppercase}}
-.title{{margin:4px 0 0;font-size:17px;font-weight:700}}
-.sub{{margin:2px 0 0;font-size:12px;color:var(--tg-theme-hint-color,#8e8e93)}}
-.meta{{margin-top:4px;font-size:11px;color:var(--tg-theme-hint-color,#8e8e93)}}
-.card{{margin-top:10px;padding:10px 12px;border-radius:10px;
-background:var(--tg-theme-secondary-bg-color,#2c2c2e)}}
-.lbl{{font-size:11px;color:var(--tg-theme-hint-color,#8e8e93);text-transform:uppercase;
-letter-spacing:.04em}}
-.bal{{margin-top:2px;font-size:28px;font-weight:750;letter-spacing:-.02em;
-color:var(--tg-theme-text-color,#fff)}}
-.sec{{margin-top:8px}}
-.row{{display:flex;justify-content:space-between;gap:10px;padding:7px 10px;
-border-radius:6px}}
-.row:nth-child(odd){{background:color-mix(in srgb,var(--tg-theme-section-separator-color,#3a3a3c) 28%,transparent)}}
-.k{{color:var(--tg-theme-hint-color,#8e8e93);font-size:12px}}
-.v{{font-weight:650;font-size:13px;text-align:right;word-break:break-word}}
-.h{{margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:.05em;
-text-transform:uppercase;color:var(--tg-theme-subtitle-text-color,#aeaeb2)}}
-.accent{{width:28px;height:2px;margin:8px 0 0;border-radius:2px;
-background:var(--tg-theme-accent-text-color,#3dd68c)}}
-</style></head><body><div class="wrap">
-<div class="brand">{brand}</div>
-<div class="title">{line}</div>
-<div class="sub">{subtitle}</div>
-{archived}
-<div class="accent"></div>
-<div class="card">
-<div class="lbl">Current Balance</div>
-<div class="bal">{current}</div>
-</div>
-<div class="card sec">
-<div class="h">Secondary</div>
-<div class="row"><span class="k">Projected</span><span class="v">{projected}</span></div>
-<div class="row"><span class="k">Expected</span><span class="v">{expected}</span></div>
-</div>
-<div class="card sec">
-<div class="h">Activity</div>
-<div class="row"><span class="k">In</span><span class="v">{inn}</span></div>
-<div class="row"><span class="k">Out</span><span class="v">{out}</span></div>
-</div>
-<div class="card sec">
-<div class="h">Account Information</div>
-<div class="row"><span class="k">VM</span><span class="v">{vm}</span></div>
-<div class="row"><span class="k">Stored</span><span class="v">{stored}</span></div>
-<div class="row"><span class="k">IBAN</span><span class="v">{iban}</span></div>
-<div class="row"><span class="k">BIN</span><span class="v">{bin_v}</span></div>
-<div class="row"><span class="k">Updated</span><span class="v">{updated}</span></div>
-</div>
-</div></body></html>"""
-    return html
+    return account_details_html(snap)
 
 
 def widget_size_ok(html: str) -> tuple[bool, int, int]:

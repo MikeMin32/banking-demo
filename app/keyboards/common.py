@@ -12,14 +12,38 @@ HISTORY_PAGE_SIZE = 8
 
 
 def main_menu_kb() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🏦 Bank Accounts", callback_data=MenuCB(a="accounts").pack())
-    builder.button(text="💰 Balance Summary", callback_data=MenuCB(a="overview").pack())
-    builder.button(text="➕ Add Account", callback_data=MenuCB(a="add").pack())
-    builder.button(text="⚙️ Settings", callback_data=MenuCB(a="settings").pack())
-    builder.button(text="⚡ Quick Update", callback_data=MenuCB(a="quick").pack())
-    builder.adjust(2, 2, 1)
-    return builder.as_markup()
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Bank Accounts",
+                    callback_data=MenuCB(a="accounts").pack(),
+                    style="primary",
+                ),
+                InlineKeyboardButton(
+                    text="Balance Summary",
+                    callback_data=MenuCB(a="overview").pack(),
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Add Account",
+                    callback_data=MenuCB(a="add").pack(),
+                    style="success",
+                ),
+                InlineKeyboardButton(
+                    text="Settings",
+                    callback_data=MenuCB(a="settings").pack(),
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Quick Update",
+                    callback_data=MenuCB(a="quick").pack(),
+                ),
+            ],
+        ]
+    )
 
 
 def back_main_kb(*, back: str = "menu") -> InlineKeyboardMarkup:

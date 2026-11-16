@@ -161,9 +161,12 @@ async def cb_transactions(query: CallbackQuery, callback_data: AccCB, services: 
         await query.answer(str(exc), show_alert=True)
         return
     text = format_ledger_message(page, services.tz)
+    from app.ui.screens import transactions_html
+
     await render_screen(
         query,
         "transactions",
         text,
         transactions_ledger_kb(callback_data.i, page=page.page, total_pages=page.total_pages),
+        html=transactions_html(page, services.tz),
     )

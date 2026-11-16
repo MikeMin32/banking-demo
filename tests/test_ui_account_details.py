@@ -132,10 +132,10 @@ async def test_account_view_kb_four_by_two() -> None:
 
     labels = [[btn.text for btn in row] for row in rows]
     assert labels == [
-        ["💵 Balance", "📋 Transactions"],
-        ["➕ Add Charge", "💰 Deposit"],
-        ["🔐 Login Details", "✏️ Edit Account"],
-        ["⬅️ Back", "🏠 Home"],
+        ["Update Balance", "Transactions"],
+        ["Add Charge", "Deposit"],
+        ["Login Details", "Edit Account"],
+        ["Back", "Home"],
     ]
 
     assert rows[0][0].callback_data == AccCB(o="bal", i=7).pack()
