@@ -170,4 +170,4 @@ async def test_present_widget_falls_back_honestly() -> None:
     huge = "x" * 50_000
     result = await present_widget(msg, huge, None, text_fallback="<b>Account</b>", screen="dashboard")  # type: ignore[arg-type]
     assert result is msg
-    assert "Widget unavailable" in msg.last
+    assert "Native rich UI unavailable" in msg.last

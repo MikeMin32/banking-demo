@@ -117,9 +117,15 @@ async def cb_ui_preview_render(query: CallbackQuery, services: Services, state: 
         await _send_widget(query.message, snap, markup)
 
 
+def _exc_description(exc: BaseException) -> str:
+    msg = getattr(exc, "message", None)
+    if isinstance(msg, str) and msg.strip():
+        return msg.strip()[:500]
+    return str(exc).strip()[:500] or type(exc).__name__
+
+
 async def _send_rich(message: Message, snap: AccountDetailsSnapshot, markup) -> None:
     rich = build_rich_account_details(snap)
-    # Serialize for secret scan without dumping to logs.
     dumped = rich.model_dump_json(exclude_none=True)
     assert_no_secrets(dumped)
     try:
@@ -130,13 +136,15 @@ async def _send_rich(message: Message, snap: AccountDetailsSnapshot, markup) -> 
         )
         logger.info("ui_preview rich_message sent chat_id=%s account_id=%s", message.chat.id, snap.account_id)
     except (TelegramBadRequest, TelegramAPIError, AttributeError, TypeError, ValueError) as exc:
+        desc = _exc_description(exc)
         logger.warning(
-            "ui_preview rich_message failed chat_id=%s err_type=%s",
+            "ui_preview rich_message failed chat_id=%s err_type=%s description=%s",
             message.chat.id,
             type(exc).__name__,
+            desc,
         )
         await message.answer(
-            build_fallback_notice("Rich Message", f"{type(exc).__name__}: rendering failed"),
+            build_fallback_notice("Rich Message", f"{type(exc).__name__}: {desc}"),
             reply_markup=preview_menu_kb(),
         )
 
@@ -147,17 +155,11 @@ async def _send_widget(message: Message, snap: AccountDetailsSnapshot, markup) -
     ok, raw, compressed = widget_size_ok(html)
     if not ok:
         logger.warning(
-            "ui_preview widget oversized raw=%s compressed=%s",
+            "ui_preview widget oversized raw=%s compressed=%s — falling back to Rich Message",
             raw,
             compressed,
         )
-        await message.answer(
-            build_fallback_notice(
-                "HTML Widget",
-                f"Widget exceeds Telegram limits (raw={raw}, zlib={compressed})",
-            ),
-            reply_markup=preview_menu_kb(),
-        )
+        await _send_rich(message, snap, markup)
         return
     try:
         await message.bot.send_widget(
@@ -175,12 +177,12 @@ async def _send_widget(message: Message, snap: AccountDetailsSnapshot, markup) -
             compressed,
         )
     except (TelegramBadRequest, TelegramAPIError, AttributeError, TypeError, ValueError) as exc:
+        desc = _exc_description(exc)
         logger.warning(
-            "ui_preview widget failed chat_id=%s err_type=%s",
+            "ui_preview widget failed chat_id=%s err_type=%s description=%s — falling back to Rich Message",
             message.chat.id,
             type(exc).__name__,
+            desc,
         )
-        await message.answer(
-            build_fallback_notice("HTML Widget", f"{type(exc).__name__}: rendering failed"),
-            reply_markup=preview_menu_kb(),
-        )
+        # Never fall back to primitive HTML when Rich Message is available.
+        await _send_rich(message, snap, markup)

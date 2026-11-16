@@ -109,14 +109,14 @@ async def _list_accounts(query: CallbackQuery, services: Services, *, archived: 
             for account in items
         ]
         text = accounts_page_summary(blocks)
-    from app.ui.screens import accounts_overview_html
+    from app.ui.rich_screens import accounts_overview_rich
 
     await render_screen(
         query,
         "accounts",
         text,
         accounts_list_kb(items, page=page, total=total, archived=archived, available_by_account=available),
-        html=accounts_overview_html(items, totals_map, archived=archived),
+        rich=accounts_overview_rich(items, totals_map, archived=archived),
     )
 
 
@@ -129,14 +129,14 @@ async def render_account(target: Message | CallbackQuery, services: Services, ac
         pending_minor=totals.expected_minor,
         totals=totals,
     )
-    from app.ui.screens import account_details_from_totals
+    from app.ui.rich_screens import account_details_rich_from_totals
 
     await render_screen(
         target,
         "account-details",
         caption,
         account_view_kb(account, from_page=page),
-        html=account_details_from_totals(totals, services.tz),
+        rich=account_details_rich_from_totals(totals, services.tz),
     )
 
 

@@ -29,14 +29,14 @@ def _settings_text(enabled: bool) -> str:
 
 async def _render_settings(target: Message | CallbackQuery, services: Services) -> None:
     settings = await services.reminders.get_settings()
-    from app.ui.screens import settings_html
+    from app.ui.rich_screens import settings_rich
 
     await render_screen(
         target,
         "settings",
         _settings_text(settings.enabled),
         settings_kb(settings),
-        html=settings_html(
+        rich=settings_rich(
             reminders_enabled=settings.enabled,
             reminder_time=services.settings.reminder_time,
         ),

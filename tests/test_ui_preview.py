@@ -63,7 +63,7 @@ def test_rich_message_uses_structured_blocks() -> None:
     headings = [b for b in rich.blocks or [] if isinstance(b, InputRichBlockSectionHeading)]
     assert any(h.size == 1 and "$5,000.00" in str(h.text) for h in headings)
     details = [b for b in rich.blocks or [] if isinstance(b, InputRichBlockDetails)]
-    assert details and details[0].is_open is True
+    assert details and details[0].is_open is False
 
     payload = rich.model_dump_json(exclude_none=True)
     assert "OPERATION GREENLINE" in payload

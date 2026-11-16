@@ -1,4 +1,8 @@
-"""Widget presentation with OG banner photos + honest text fallback."""
+"""Screen presentation: Rich Message primary, Widget optional, banners preserved.
+
+Widgets currently fail for this bot with INPUT_MEDIA_WIDGET_NOT_ALLOWED.
+Approved /ui_preview prototype A (Rich Message) is the production path.
+"""
 
 from __future__ import annotations
 
@@ -7,9 +11,8 @@ import zlib
 from pathlib import Path
 
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, InputRichMessage, Message
 
-from app.ui.screens import prompt_html
 from app.utils.telegram import safe_edit, try_delete
 
 logger = logging.getLogger(__name__)
@@ -19,22 +22,8 @@ WIDGET_MAX_COMPRESSED = 4_096
 
 BANNER_DIR = Path(__file__).resolve().parents[2] / "assets" / "banners"
 _BANNER_FILE_IDS: dict[str, str] = {}
-# chat_id -> (banner_message_id, widget_message_id) for cleanup without flooding chat
+# chat_id -> (banner_message_id, content_message_id)
 _LAST_PAIR: dict[int, tuple[int | None, int]] = {}
-
-# Prefer auto height so tabs/accordions can resize (Telegram clamps 50–600).
-SCREEN_HEIGHTS: dict[str, int | None] = {
-    "dashboard": None,
-    "accounts": None,
-    "account-details": None,
-    "balance-summary": None,
-    "transactions": None,
-    "settings": None,
-    "login-details": None,
-    "expected-charges": None,
-    "quick-add": None,
-    "add-account": None,
-}
 
 
 def widget_size_ok(html: str) -> tuple[bool, int, int]:
@@ -69,11 +58,20 @@ def _remember_banner(screen: str, message: Message | None) -> None:
         _BANNER_FILE_IDS[screen] = message.photo[-1].file_id
 
 
+def _error_description(exc: BaseException) -> str:
+    """Safe Telegram error text for logs (no tokens/secrets)."""
+    msg = getattr(exc, "message", None)
+    if isinstance(msg, str) and msg.strip():
+        return msg.strip()[:500]
+    text = str(exc).strip()
+    return text[:500] if text else type(exc).__name__
+
+
 async def _cleanup_previous(chat_id: int, bot, current: Message | None) -> None:
     old = _LAST_PAIR.pop(chat_id, None)
     if old:
-        banner_id, widget_id = old
-        for mid in (widget_id, banner_id):
+        banner_id, content_id = old
+        for mid in (content_id, banner_id):
             if mid is None:
                 continue
             try:
@@ -81,9 +79,73 @@ async def _cleanup_previous(chat_id: int, bot, current: Message | None) -> None:
             except TelegramBadRequest:
                 pass
         return
-    # First navigation from an older single message (callback target).
     if current is not None:
         await try_delete(current)
+
+
+async def _send_banner(bot, chat_id: int, screen: str | None) -> Message | None:
+    if not screen:
+        return None
+    media = _banner_media(screen)
+    if media is None:
+        return None
+    try:
+        banner_msg = await bot.send_photo(chat_id=chat_id, photo=media)
+        _remember_banner(screen, banner_msg)
+        return banner_msg
+    except (TelegramBadRequest, TelegramAPIError) as exc:
+        logger.warning(
+            "banner send failed screen=%s err_type=%s description=%s",
+            screen,
+            type(exc).__name__,
+            _error_description(exc),
+        )
+        return None
+
+
+async def present_rich(
+    target: Message | CallbackQuery,
+    rich: InputRichMessage,
+    keyboard,
+    *,
+    text_fallback: str,
+    screen: str | None = None,
+) -> Message | None:
+    """Primary presentation: OG banner photo + approved Rich Message."""
+    message = _message(target)
+    if message is None:
+        return None
+    bot = message.bot
+    chat_id = message.chat.id
+
+    if isinstance(target, CallbackQuery):
+        await _cleanup_previous(chat_id, bot, message)
+    else:
+        await _cleanup_previous(chat_id, bot, None)
+
+    banner_msg = await _send_banner(bot, chat_id, screen)
+    try:
+        sent = await bot.send_rich_message(
+            chat_id=chat_id,
+            rich_message=rich,
+            reply_markup=keyboard,
+        )
+    except (TelegramBadRequest, TelegramAPIError, AttributeError, TypeError, ValueError) as exc:
+        logger.warning(
+            "rich_message send failed err_type=%s description=%s",
+            type(exc).__name__,
+            _error_description(exc),
+        )
+        if banner_msg is not None:
+            await try_delete(banner_msg)
+        return await _last_resort_text(target, text_fallback, keyboard, screen=screen, reason=type(exc).__name__)
+
+    _LAST_PAIR[chat_id] = (
+        banner_msg.message_id if banner_msg is not None else None,
+        sent.message_id,
+    )
+    logger.info("rich_message sent chat_id=%s screen=%s", chat_id, screen)
+    return sent
 
 
 async def present_widget(
@@ -95,37 +157,30 @@ async def present_widget(
     height: int | None = None,
     caption: str | None = None,
     screen: str | None = None,
+    rich_fallback: InputRichMessage | None = None,
 ) -> Message | None:
-    """Send optional OG banner photo + Widget; delete prior pair to avoid flood."""
+    """Optional Widget path. On failure, prefer Rich Message — never pretend Widget worked."""
     message = _message(target)
     if message is None:
         return None
 
     ok, raw, compressed = widget_size_ok(html)
     if not ok:
-        logger.warning("widget oversized raw=%s compressed=%s — using text fallback", raw, compressed)
-        return await _fallback(target, text_fallback, keyboard, reason="size_limit", screen=screen)
+        logger.warning("widget oversized raw=%s compressed=%s", raw, compressed)
+        if rich_fallback is not None:
+            return await present_rich(
+                target, rich_fallback, keyboard, text_fallback=text_fallback, screen=screen
+            )
+        return await _last_resort_text(target, text_fallback, keyboard, screen=screen, reason="size_limit")
 
     bot = message.bot
     chat_id = message.chat.id
-
-    # Remove previous banner+widget pair (or the triggering message).
     if isinstance(target, CallbackQuery):
         await _cleanup_previous(chat_id, bot, message)
     else:
-        # Fresh /start-style entry: still clear any tracked pair.
         await _cleanup_previous(chat_id, bot, None)
 
-    banner_msg: Message | None = None
-    media = _banner_media(screen) if screen else None
-    if media is not None:
-        try:
-            banner_msg = await bot.send_photo(chat_id=chat_id, photo=media)
-            _remember_banner(screen or "", banner_msg)
-        except (TelegramBadRequest, TelegramAPIError) as exc:
-            logger.warning("banner send failed screen=%s err_type=%s", screen, type(exc).__name__)
-            banner_msg = None
-
+    banner_msg = await _send_banner(bot, chat_id, screen)
     try:
         kwargs: dict = {
             "chat_id": chat_id,
@@ -139,16 +194,19 @@ async def present_widget(
             kwargs["caption"] = caption
         sent = await bot.send_widget(**kwargs)
     except (TelegramBadRequest, TelegramAPIError, AttributeError, TypeError, ValueError) as exc:
-        logger.warning("widget send failed err_type=%s — using text fallback", type(exc).__name__)
+        desc = _error_description(exc)
+        logger.warning(
+            "widget send failed err_type=%s description=%s — falling back to rich/text",
+            type(exc).__name__,
+            desc,
+        )
         if banner_msg is not None:
             await try_delete(banner_msg)
-        return await _fallback(
-            target,
-            text_fallback,
-            keyboard,
-            reason=type(exc).__name__,
-            screen=screen,
-        )
+        if rich_fallback is not None:
+            return await present_rich(
+                target, rich_fallback, keyboard, text_fallback=text_fallback, screen=screen
+            )
+        return await _last_resort_text(target, text_fallback, keyboard, screen=screen, reason=desc)
 
     _LAST_PAIR[chat_id] = (
         banner_msg.message_id if banner_msg is not None else None,
@@ -157,21 +215,17 @@ async def present_widget(
     return sent
 
 
-async def _fallback(
+async def _last_resort_text(
     target: Message | CallbackQuery,
     text: str,
     keyboard,
     *,
+    screen: str | None,
     reason: str,
-    screen: str | None = None,
 ) -> Message | None:
-    notice = (
-        f"{text}\n\n"
-        f"<i>Widget unavailable ({reason}). Showing standard message.</i>"
-    )
-    if "Widget unavailable" in text:
+    notice = f"{text}\n\n<i>Native rich UI unavailable ({reason}).</i>"
+    if "Native rich UI unavailable" in text:
         notice = text
-    # Prefer classic banner photo+caption when Widget fails and a banner exists.
     message = _message(target)
     if message is not None and screen and banner_exists(screen):
         media = _banner_media(screen)
@@ -192,25 +246,49 @@ async def render_app_screen(
     screen: str,
     keyboard,
     *,
+    rich: InputRichMessage | None = None,
     html: str | None = None,
     text_fallback: str,
     height: int | None = None,
     caption: str | None = None,
     wrap_caption_as_prompt: bool = False,
+    prefer_widget: bool = False,
 ) -> Message | None:
-    content = html
-    if content is None and wrap_caption_as_prompt:
-        content = prompt_html(screen=screen, caption_html=text_fallback)
-    if content is None:
-        return await safe_edit(target, text_fallback, keyboard)
+    """Render a screen. Rich Message is primary unless prefer_widget is set."""
+    del wrap_caption_as_prompt  # prompts now supply rich explicitly when possible
 
-    h = SCREEN_HEIGHTS.get(screen) if height is None else height
-    return await present_widget(
-        target,
-        content,
-        keyboard,
-        text_fallback=text_fallback,
-        height=h,
-        caption=caption,
-        screen=screen,
-    )
+    if prefer_widget and html is not None:
+        return await present_widget(
+            target,
+            html,
+            keyboard,
+            text_fallback=text_fallback,
+            height=height,
+            caption=caption,
+            screen=screen,
+            rich_fallback=rich,
+        )
+
+    if rich is not None:
+        return await present_rich(
+            target,
+            rich,
+            keyboard,
+            text_fallback=text_fallback,
+            screen=screen,
+        )
+
+    if html is not None:
+        # No rich available: try widget, then last-resort text.
+        return await present_widget(
+            target,
+            html,
+            keyboard,
+            text_fallback=text_fallback,
+            height=height,
+            caption=caption,
+            screen=screen,
+            rich_fallback=None,
+        )
+
+    return await safe_edit(target, text_fallback, keyboard)

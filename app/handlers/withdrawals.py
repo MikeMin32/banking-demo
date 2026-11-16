@@ -62,9 +62,9 @@ async def _show_list(
         else:
             text = f"{title} charges:"
     from app.services.money import format_amount
-    from app.ui.screens import list_items_html
+    from app.ui.rich_screens import list_items_rich
 
-    items_html = list_items_html(
+    items_rich = list_items_rich(
         title=f"{title} charges",
         subtitle="Select a charge below" if paired else "Nothing here yet",
         items=[
@@ -86,7 +86,7 @@ async def _show_list(
         "expected-charges",
         text,
         withdrawals_list_kb(paired, status=filter_status, page=page, total=total, account_id=account_id),
-        html=items_html,
+        rich=items_rich,
     )
 
 
@@ -124,7 +124,7 @@ async def cb_view(query: CallbackQuery, callback_data: WdCB, services: Services,
         withdrawal_section(withdrawal, account, services.tz),
     )
     from app.services.money import format_amount
-    from app.ui.screens import detail_html
+    from app.ui.rich_screens import detail_rich
     from app.utils.time import format_dt
 
     pairs = [
@@ -143,7 +143,7 @@ async def cb_view(query: CallbackQuery, callback_data: WdCB, services: Services,
         "expected-charges",
         text,
         withdrawal_view_kb(withdrawal, status=callback_data.s, account_id=callback_data.a, page=callback_data.p),
-        html=detail_html(
+        rich=detail_rich(
             title=account.line_label,
             subtitle=f"{account.banking_provider} · Charge",
             pairs=pairs,

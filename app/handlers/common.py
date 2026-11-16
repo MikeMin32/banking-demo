@@ -7,7 +7,7 @@ from aiogram.types import CallbackQuery, Message
 
 from app.keyboards.common import main_menu_kb
 from app.services.container import Services
-from app.ui.screens import dashboard_html
+from app.ui.rich_screens import dashboard_rich
 from app.utils.formatting import dashboard_text
 from app.utils.screens import render_screen
 from app.utils.telegram import clear_state
@@ -26,7 +26,7 @@ async def show_dashboard(
         "dashboard",
         dashboard_text(snap, services.tz),
         main_menu_kb(),
-        html=dashboard_html(snap),
+        rich=dashboard_rich(snap),
     )
 
 

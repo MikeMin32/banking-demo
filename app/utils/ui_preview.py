@@ -132,52 +132,10 @@ def _kv_table(rows: list[tuple[str, str]], *, striped: bool = True, compact: boo
 
 
 def build_rich_account_details(snap: AccountDetailsSnapshot) -> InputRichMessage:
-    """Prototype A — native Rich Message blocks (headings, tables, details)."""
-    brand = BRAND
-    if snap.is_archived:
-        brand = f"{BRAND} · Archived"
+    """Prototype A — approved Rich Message layout (shared with production screens)."""
+    from app.ui.rich_screens import account_details_rich
 
-    blocks = [
-        InputRichBlockSectionHeading(text=brand, size=3),
-        InputRichBlockParagraph(text=RichTextBold(text=snap.line_name)),
-        InputRichBlockParagraph(text=snap.subtitle),
-        InputRichBlockDivider(),
-        InputRichBlockSectionHeading(text="Current Balance", size=5),
-        InputRichBlockSectionHeading(text=snap.money(snap.current_minor), size=1),
-        InputRichBlockDivider(),
-        InputRichBlockSectionHeading(text="Secondary", size=5),
-        _kv_table(
-            [
-                ("Projected", snap.money(snap.projected_minor)),
-                ("Expected", snap.money(snap.expected_minor)),
-            ]
-        ),
-        InputRichBlockDivider(),
-        InputRichBlockSectionHeading(text="Activity", size=5),
-        _kv_table(
-            [
-                ("In", snap.money(snap.in_minor)),
-                ("Out", snap.money(snap.out_minor)),
-            ]
-        ),
-        InputRichBlockDetails(
-            summary="Account Information",
-            is_open=True,
-            blocks=[
-                _kv_table(
-                    [
-                        ("VM", snap.vm),
-                        ("Stored", snap.stored),
-                        ("IBAN", snap.iban),
-                        ("BIN", snap.bin),
-                        ("Updated", snap.updated_label),
-                    ],
-                    compact=True,
-                )
-            ],
-        ),
-    ]
-    return InputRichMessage(blocks=blocks)
+    return account_details_rich(snap)
 
 
 def build_widget_account_details(snap: AccountDetailsSnapshot) -> str:
