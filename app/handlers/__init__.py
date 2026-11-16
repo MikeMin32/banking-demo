@@ -15,10 +15,12 @@ from app.handlers.topups import router as topups_router
 from app.handlers.quick import router as quick_router
 from app.handlers.withdrawals import router as withdrawals_router
 from app.handlers.fallback import router as fallback_router
+from app.handlers.ui_preview import router as ui_preview_router
 
 
 def setup_routers(dp: Dispatcher) -> None:
     dp.include_router(start_router)
+    dp.include_router(ui_preview_router)
     dp.include_router(accounts_router)
     dp.include_router(balances_router)
     dp.include_router(quick_router)
