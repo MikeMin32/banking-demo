@@ -102,23 +102,25 @@ def accounts_overview_html(
     *,
     archived: bool,
 ) -> str:
-    title = "Archived accounts" if archived else "Bank accounts"
+    title = "📦 Archived accounts" if archived else "🏦 Bank accounts"
     header = app_header(title=title, subtitle="Tap an account below")
     if not accounts:
         msg = "No archived accounts." if archived else "No active accounts yet."
         return document(header + empty_state(msg))
+    # Compact 2-line cards: name/provider, then Expected/Current/Projected inline.
     blocks = [header]
     for account in accounts:
         totals = totals_map[account.id]
+        metrics = (
+            f"⏳ {_money(totals.expected_minor, account.currency)}"
+            f"&nbsp;&nbsp;💰 {_money(totals.current_minor, account.currency)}"
+            f"&nbsp;&nbsp;📊 {_money(totals.projected_minor, account.currency)}"
+        )
+        arch = status_pill("Archived") if account.is_archived else ""
         blocks.append(
-            account_card_block(
-                name=account.line_label,
-                provider=f"{account.banking_provider} · {account.currency}",
-                expected=_money(totals.expected_minor, account.currency),
-                current=_money(totals.current_minor, account.currency),
-                projected=_money(totals.projected_minor, account.currency),
-                archived=account.is_archived,
-            )
+            f'<div class="acc"><div class="name">{e(account.line_label)} · '
+            f"{e(account.banking_provider)}</div>{arch}"
+            f'<div class="prov">{metrics}</div></div>'
         )
     return document("".join(blocks))
 
@@ -132,13 +134,13 @@ def account_details_html(snap: AccountDetailsSnapshot) -> str:
         brand=BRAND,
         meta=meta,
     )
-    primary = balance_card("Current Balance", snap.money(snap.current_minor))
+    primary = balance_card("💰 Current Balance", snap.money(snap.current_minor))
     overview = section_card(
-        "Financial Overview",
+        "📊 Overview",
         kv_rows(
             [
-                ("Projected", snap.money(snap.projected_minor)),
-                ("Expected", snap.money(snap.expected_minor)),
+                ("📊 Projected", snap.money(snap.projected_minor)),
+                ("⏳ Expected", snap.money(snap.expected_minor)),
             ]
         ),
     )
@@ -146,8 +148,8 @@ def account_details_html(snap: AccountDetailsSnapshot) -> str:
         "Activity",
         kv_rows(
             [
-                ("In", snap.money(snap.in_minor)),
-                ("Out", snap.money(snap.out_minor)),
+                ("🟢 In", snap.money(snap.in_minor)),
+                ("🔴 Out", snap.money(snap.out_minor)),
             ]
         ),
     )
@@ -160,7 +162,7 @@ def account_details_html(snap: AccountDetailsSnapshot) -> str:
             ("Updated", snap.updated_label),
         ]
     )
-    details = accordion("Account Information", details_rows, open_=False)
+    details = accordion("ℹ️ Account Information", details_rows, open_=False)
     body = (
         header
         + primary

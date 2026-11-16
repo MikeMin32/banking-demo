@@ -45,30 +45,30 @@ def _currency_lines(snap: DashboardSnapshot, field: str) -> list[tuple[str, str]
 
 
 def account_details_rich(snap: AccountDetailsSnapshot) -> InputRichMessage:
-    """Exact approved Account Details Rich Message layout from /ui_preview A."""
+    """Approved Account Details Rich Message layout with light emoji polish."""
     blocks = brand_header(snap.line_name, snap.subtitle, archived=snap.is_archived)
     blocks.extend(
         [
-            heading("Current Balance", 5),
+            heading("💰 Current Balance", 5),
             heading(snap.money(snap.current_minor), 1),
             divider(),
-            heading("Secondary", 5),
+            heading("📊 Overview", 5),
             kv_table(
                 [
-                    ("Projected", snap.money(snap.projected_minor)),
-                    ("Expected", snap.money(snap.expected_minor)),
+                    ("📊 Projected", snap.money(snap.projected_minor)),
+                    ("⏳ Expected", snap.money(snap.expected_minor)),
                 ]
             ),
             divider(),
             heading("Activity", 5),
             kv_table(
                 [
-                    ("In", snap.money(snap.in_minor)),
-                    ("Out", snap.money(snap.out_minor)),
+                    ("🟢 In", snap.money(snap.in_minor)),
+                    ("🔴 Out", snap.money(snap.out_minor)),
                 ]
             ),
             details(
-                "Account Information",
+                "ℹ️ Account Information",
                 [
                     ("VM", snap.vm),
                     ("Stored", snap.stored),
@@ -94,7 +94,7 @@ def dashboard_rich(snap: DashboardSnapshot) -> InputRichMessage:
     if len(balances) == 1 and balances[0][0] != "—":
         blocks.extend(
             [
-                heading(f"Active · {balances[0][0]}", 5),
+                heading(f"💰 Active · {balances[0][0]}", 5),
                 heading(balances[0][1], 1),
                 divider(),
             ]
@@ -102,14 +102,14 @@ def dashboard_rich(snap: DashboardSnapshot) -> InputRichMessage:
     else:
         blocks.extend(
             [
-                heading("Active Balances", 5),
+                heading("💰 Active Balances", 5),
                 kv_table(balances),
                 divider(),
             ]
         )
     blocks.extend(
         [
-            heading("Active Charges", 5),
+            heading("⏳ Active Charges", 5),
             kv_table(charges),
             details(
                 "Workspace",
@@ -121,13 +121,23 @@ def dashboard_rich(snap: DashboardSnapshot) -> InputRichMessage:
     return rich_message(blocks)
 
 
+def _compact_account_metrics(totals: AccountTotals) -> str:
+    currency = totals.account.currency
+    return (
+        f"⏳ {_money(totals.expected_minor, currency)}"
+        f"   💰 {_money(totals.current_minor, currency)}"
+        f"   📊 {_money(totals.projected_minor, currency)}"
+    )
+
+
 def accounts_overview_rich(
     accounts: list[Account],
     totals_map: dict[int, AccountTotals],
     *,
     archived: bool,
 ) -> InputRichMessage:
-    title = "Archived accounts" if archived else "Bank accounts"
+    """Compact 2-line rows so many production accounts fit on one screen."""
+    title = "📦 Archived accounts" if archived else "🏦 Bank accounts"
     blocks = brand_header(title, "Tap an account below")
     if not accounts:
         msg = "No archived accounts." if archived else "No active accounts yet."
@@ -135,25 +145,16 @@ def accounts_overview_rich(
         return rich_message(blocks)
     for account in accounts:
         totals = totals_map[account.id]
-        blocks.append(heading(account.line_label, 4))
-        blocks.append(paragraph(f"{account.banking_provider} · {account.currency}"))
-        blocks.append(
-            kv_table(
-                [
-                    ("Expected", _money(totals.expected_minor, account.currency)),
-                    ("Current", _money(totals.current_minor, account.currency)),
-                    ("Projected", _money(totals.projected_minor, account.currency)),
-                ]
-            )
-        )
-        blocks.append(divider())
-    while blocks and isinstance(blocks[-1], InputRichBlockDivider):
-        blocks.pop()
+        # Line 1: name · provider (currency stays on the same line when short).
+        line = f"{account.line_label} · {account.banking_provider}"
+        blocks.append(paragraph(line))
+        # Line 2: compact Expected / Current / Projected metrics.
+        blocks.append(paragraph(_compact_account_metrics(totals)))
     return rich_message(blocks)
 
 
 def balance_summary_rich(snap: DashboardSnapshot) -> InputRichMessage:
-    blocks = brand_header("Balance Summary", "By account")
+    blocks = brand_header("💰 Balance Summary", "By account")
     if not snap.accounts:
         blocks.append(paragraph("No active accounts yet."))
         return rich_message(blocks)
@@ -161,18 +162,15 @@ def balance_summary_rich(snap: DashboardSnapshot) -> InputRichMessage:
         pending = snap.pending_by_account.get(account.id, 0)
         current = account.balance_minor
         projected = current - pending
-        blocks.append(heading(account.line_label, 4))
-        blocks.append(paragraph(f"{account.banking_provider} · {account.currency}"))
+        blocks.append(paragraph(f"{account.line_label} · {account.banking_provider}"))
         blocks.append(
-            kv_table(
-                [
-                    ("Expected", _money(pending, account.currency)),
-                    ("Current", _money(current, account.currency)),
-                    ("Projected", _money(projected, account.currency)),
-                ]
+            paragraph(
+                f"⏳ {_money(pending, account.currency)}"
+                f"   💰 {_money(current, account.currency)}"
+                f"   📊 {_money(projected, account.currency)}"
             )
         )
-        blocks.append(divider())
+    blocks.append(divider())
     blocks.append(heading("Totals · available", 5))
     blocks.append(kv_table(_currency_lines(snap, "available_minor") or [("—", "—")]))
     blocks.append(heading("Totals · charges", 5))
@@ -209,20 +207,20 @@ def transactions_rich(page: LedgerPage, tz: ZoneInfo) -> InputRichMessage:
     blocks = brand_header(account.line_label, f"{account.banking_provider} · {currency}")
     blocks.extend(
         [
-            heading("Current", 5),
+            heading("💰 Current", 5),
             heading(_money(totals.current_minor, currency), 1),
             divider(),
-            heading("Summary", 5),
+            heading("📊 Overview", 5),
             kv_table(
                 [
-                    ("Projected", _money(totals.projected_minor, currency)),
-                    ("In", _money(totals.in_minor, currency)),
-                    ("Out", _money(totals.out_minor, currency)),
-                    ("Expected", _money(totals.expected_minor, currency)),
+                    ("📊 Projected", _money(totals.projected_minor, currency)),
+                    ("🟢 In", _money(totals.in_minor, currency)),
+                    ("🔴 Out", _money(totals.out_minor, currency)),
+                    ("⏳ Expected", _money(totals.expected_minor, currency)),
                 ]
             ),
             divider(),
-            heading("Ledger", 5),
+            heading("🧾 Ledger", 5),
         ]
     )
     if not page.events:
@@ -244,7 +242,7 @@ def transactions_rich(page: LedgerPage, tz: ZoneInfo) -> InputRichMessage:
 
 def settings_rich(*, reminders_enabled: bool, reminder_time: str) -> InputRichMessage:
     status = "Enabled" if reminders_enabled else "Disabled"
-    blocks = brand_header("Settings", "Workspace preferences")
+    blocks = brand_header("⚙️ Settings", "Workspace preferences")
     blocks.extend(
         [
             heading("Reminders", 5),
@@ -264,7 +262,7 @@ def login_rich(account: Account, *, can_reveal: bool) -> InputRichMessage:
     blocks = brand_header(account.line_label, f"{account.banking_provider} · Login")
     blocks.extend(
         [
-            heading("Credentials", 5),
+            heading("🔐 Credentials", 5),
             kv_table(
                 [
                     ("Mobile", account.login_mobile or "—"),

@@ -36,7 +36,7 @@ def test_account_details_has_real_tabs_and_accordion() -> None:
     assert 'data-panel="activity" hidden' in html
     assert 'data-panel="details" hidden' in html
     # Details accordion closed by default (no open attribute)
-    assert re.search(r"<details class=\"accbox\">\s*<summary>Account Information", html)
+    assert re.search(r"<details class=\"accbox\">\s*<summary>ℹ️ Account Information", html)
     assert "Current Balance" in html
     assert "$5,000.00" in html
     assert "Projected" in html and "Expected" in html
@@ -70,8 +70,10 @@ async def test_account_details_and_accounts_widgets(services) -> None:
     assert "data-tab=" in details
     overview = accounts_overview_html([account], {account.id: totals}, archived=False)
     assert "Automation Direct" in overview
-    assert "Expected" in overview
+    assert "⏳" in overview and "💰" in overview and "📊" in overview
     assert "Activity" not in overview
+    # Compact list: no full Expected/Current/Projected row labels.
+    assert ">Expected<" not in overview and ">Current<" not in overview
     assert banner_exists("account-details")
     assert banner_exists("accounts")
 

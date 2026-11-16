@@ -21,7 +21,7 @@ def test_approved_account_details_rich_structure() -> None:
     headings = [b for b in (rich.blocks or []) if isinstance(b, InputRichBlockSectionHeading)]
     assert any(h.size == 1 and "$5,000.00" in str(h.text) for h in headings)
     details = [b for b in (rich.blocks or []) if isinstance(b, InputRichBlockDetails)]
-    assert details and details[0].summary == "Account Information"
+    assert details and "Account Information" in str(details[0].summary)
     payload = rich.model_dump_json(exclude_none=True)
     assert "OPERATION GREENLINE" in payload
     assert "Automation Direct" in payload
