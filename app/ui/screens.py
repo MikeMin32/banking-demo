@@ -1,4 +1,4 @@
-"""Screen-level Widget HTML builders. Presentation only — no business logic."""
+"""Screen-level Widget HTML builders with real tabs/accordions/cards."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from app.services.ledger import LedgerEvent, LedgerPage
 from app.services.money import format_amount
 from app.services.totals import AccountTotals
 from app.ui.components import (
+    accordion,
     account_card_block,
     app_header,
     balance_card,
@@ -22,14 +23,15 @@ from app.ui.components import (
     footer,
     kv_rows,
     notice_card,
-    section,
+    section_card,
     status_pill,
+    tab_bar,
+    tab_panel,
     tx_row,
 )
 from app.ui.theme import BRAND
 from app.utils.time import format_dt, to_local
 from app.utils.ui_preview import AccountDetailsSnapshot, snapshot_from_totals
-
 
 SCREEN_TITLES = {
     "dashboard": "Home",
@@ -71,16 +73,27 @@ def dashboard_html(snap: DashboardSnapshot) -> str:
         primary = balance_card(f"Active · {balances[0][0]}", balances[0][1])
         balance_section = ""
     else:
-        primary = balance_card("Active balances", "Multi-currency" if balances[0][0] != "—" else "—")
-        balance_section = section("Balances by currency", kv_rows(balances))
+        primary = balance_card(
+            "Active balances",
+            "Multi-currency" if balances[0][0] != "—" else "—",
+        )
+        balance_section = section_card("Balances by currency", kv_rows(balances))
+    overview = primary + balance_section + section_card("Active charges", kv_rows(charges))
+    more = accordion(
+        "Workspace notes",
+        notice_card(
+            f"{len(snap.accounts)} active account(s). Use Bank Accounts to open a line."
+        ),
+        open_=False,
+    )
     body = (
         header
-        + primary
-        + balance_section
-        + section("Active charges", kv_rows(charges))
+        + tab_bar([("home", "Overview"), ("more", "Notes")], active="home")
+        + tab_panel("home", overview, active="home")
+        + tab_panel("more", more, active="home")
         + footer(f"{len(snap.accounts)} active account(s)")
     )
-    return document(body)
+    return document(body, with_tabs=True)
 
 
 def accounts_overview_html(
@@ -111,47 +124,55 @@ def accounts_overview_html(
 
 
 def account_details_html(snap: AccountDetailsSnapshot) -> str:
+    """Approved Account Details experience: balance + internal tabs + accordion."""
     meta = "Archived" if snap.is_archived else None
-    body = (
-        app_header(
-            title=snap.line_name,
-            subtitle=snap.subtitle,
-            brand=BRAND,
-            meta=meta,
-        )
-        + balance_card("Current Balance", snap.money(snap.current_minor))
-        + section(
-            "Secondary",
-            kv_rows(
-                [
-                    ("Projected", snap.money(snap.projected_minor)),
-                    ("Expected", snap.money(snap.expected_minor)),
-                ]
-            ),
-        )
-        + section(
-            "Activity",
-            kv_rows(
-                [
-                    ("In", snap.money(snap.in_minor)),
-                    ("Out", snap.money(snap.out_minor)),
-                ]
-            ),
-        )
-        + section(
-            "Account Information",
-            kv_rows(
-                [
-                    ("VM", snap.vm),
-                    ("Stored", snap.stored),
-                    ("IBAN", snap.iban),
-                    ("BIN", snap.bin),
-                    ("Updated", snap.updated_label),
-                ]
-            ),
-        )
+    header = app_header(
+        title=snap.line_name,
+        subtitle=snap.subtitle,
+        brand=BRAND,
+        meta=meta,
     )
-    return document(body)
+    primary = balance_card("Current Balance", snap.money(snap.current_minor))
+    overview = section_card(
+        "Financial Overview",
+        kv_rows(
+            [
+                ("Projected", snap.money(snap.projected_minor)),
+                ("Expected", snap.money(snap.expected_minor)),
+            ]
+        ),
+    )
+    activity = section_card(
+        "Activity",
+        kv_rows(
+            [
+                ("In", snap.money(snap.in_minor)),
+                ("Out", snap.money(snap.out_minor)),
+            ]
+        ),
+    )
+    details_rows = kv_rows(
+        [
+            ("VM", snap.vm),
+            ("Stored", snap.stored),
+            ("IBAN", snap.iban),
+            ("BIN", snap.bin),
+            ("Updated", snap.updated_label),
+        ]
+    )
+    details = accordion("Account Information", details_rows, open_=False)
+    body = (
+        header
+        + primary
+        + tab_bar(
+            [("overview", "Overview"), ("activity", "Activity"), ("details", "Details")],
+            active="overview",
+        )
+        + tab_panel("overview", overview, active="overview")
+        + tab_panel("activity", activity, active="overview")
+        + tab_panel("details", details, active="overview")
+    )
+    return document(body, with_tabs=True)
 
 
 def account_details_from_totals(totals: AccountTotals, tz: ZoneInfo) -> str:
@@ -169,7 +190,11 @@ def _event_body(event: LedgerEvent, currency: str) -> str:
     if event.kind == "expected":
         amount = _money(event.amount_minor or 0, currency)
         text = f"⏳ -{escape(amount)}"
-        return f'<span class="struck wait">{text}</span>' if event.struck else f'<span class="wait">{text}</span>'
+        return (
+            f'<span class="struck wait">{text}</span>'
+            if event.struck
+            else f'<span class="wait">{text}</span>'
+        )
     if event.kind == "manual":
         old = _money(event.old_minor or 0, currency)
         new = _money(event.new_minor or 0, currency)
@@ -188,7 +213,7 @@ def transactions_html(page: LedgerPage, tz: ZoneInfo) -> str:
     )
     summary = (
         balance_card("Current", _money(totals.current_minor, currency))
-        + section(
+        + section_card(
             "Summary",
             kv_rows(
                 [
@@ -201,46 +226,42 @@ def transactions_html(page: LedgerPage, tz: ZoneInfo) -> str:
         )
     )
     if not page.events:
-        body = header + summary + empty_state("No transactions yet.") + footer(
-            f"Page {page.page + 1} / {page.total_pages}"
-        )
-        return document(body)
+        ledger = empty_state("No transactions yet.")
+    else:
+        parts: list[str] = ['<div class="card"><div class="h">Ledger</div>']
+        current_date: str | None = None
+        for event in page.events:
+            local = to_local(event.at, tz)
+            if local is None:
+                continue
+            date_label = local.strftime("%d %b %Y")
+            if date_label != current_date:
+                current_date = date_label
+                parts.append(date_header(date_label))
+            parts.append(tx_row(time=local.strftime("%H:%M"), body_html=_event_body(event, currency)))
+        parts.append("</div>")
+        ledger = "".join(parts)
 
-    ledger_parts: list[str] = ['<div class="card"><div class="h">Ledger</div>']
-    current_date: str | None = None
-    for event in page.events:
-        local = to_local(event.at, tz)
-        if local is None:
-            continue
-        date_label = local.strftime("%d %b %Y")
-        if date_label != current_date:
-            current_date = date_label
-            ledger_parts.append(date_header(date_label))
-        ledger_parts.append(
-            tx_row(time=local.strftime("%H:%M"), body_html=_event_body(event, currency))
-        )
-    ledger_parts.append("</div>")
     body = (
         header
-        + summary
-        + "".join(ledger_parts)
-        + footer(f"Page {page.page + 1} / {page.total_pages}")
+        + tab_bar([("summary", "Summary"), ("ledger", "Ledger")], active="ledger")
+        + tab_panel("summary", summary, active="ledger")
+        + tab_panel("ledger", ledger + footer(f"Page {page.page + 1} / {page.total_pages}"), active="ledger")
     )
-    return document(body)
+    return document(body, with_tabs=True)
 
 
 def balance_summary_html(snap: DashboardSnapshot, *, page_text: str | None = None) -> str:
-    """Structured multi-currency overview; page_text unused except as empty hint."""
     del page_text
     header = app_header(title="Balance Summary", subtitle="By account")
     if not snap.accounts:
         return document(header + empty_state("No active accounts yet."))
-    blocks = [header]
+    cards: list[str] = []
     for account in snap.accounts:
         pending = snap.pending_by_account.get(account.id, 0)
         current = account.balance_minor
         projected = current - pending
-        blocks.append(
+        cards.append(
             account_card_block(
                 name=account.line_label,
                 provider=f"{account.banking_provider} · {account.currency}",
@@ -249,53 +270,72 @@ def balance_summary_html(snap: DashboardSnapshot, *, page_text: str | None = Non
                 projected=_money(projected, account.currency),
             )
         )
-    totals_rows = _currency_lines(snap, "available_minor")
-    pending_rows = _currency_lines(snap, "pending_minor")
-    blocks.append(section("Totals · available", kv_rows(totals_rows or [("—", "—")])))
-    blocks.append(section("Totals · charges", kv_rows(pending_rows or [("—", "—")])))
-    return document("".join(blocks))
+    accounts_panel = "".join(cards)
+    totals_panel = (
+        section_card("Totals · available", kv_rows(_currency_lines(snap, "available_minor") or [("—", "—")]))
+        + section_card("Totals · charges", kv_rows(_currency_lines(snap, "pending_minor") or [("—", "—")]))
+    )
+    body = (
+        header
+        + tab_bar([("accounts", "Accounts"), ("totals", "Totals")], active="accounts")
+        + tab_panel("accounts", accounts_panel, active="accounts")
+        + tab_panel("totals", totals_panel, active="accounts")
+    )
+    return document(body, with_tabs=True)
 
 
 def settings_html(*, reminders_enabled: bool, reminder_time: str) -> str:
     status = "Enabled" if reminders_enabled else "Disabled"
+    general = section_card(
+        "General",
+        kv_rows([("Workspace", "Operation Greenline"), ("Theme", "Telegram native")]),
+    )
+    reminders = section_card(
+        "Reminders",
+        kv_rows([("Status", status), ("Time", reminder_time)]),
+    )
+    optional = accordion(
+        "Advanced",
+        notice_card("Only settings supported by this bot are shown. Owner backup uses /backup."),
+        open_=False,
+    )
     body = (
         app_header(title="Settings", subtitle="Workspace preferences")
-        + section(
-            "Daily reminder",
-            kv_rows(
-                [
-                    ("Status", status),
-                    ("Time", reminder_time),
-                ]
-            ),
-        )
-        + notice_card("Only settings supported by this bot are shown.")
+        + tab_bar([("general", "General"), ("reminders", "Reminders")], active="reminders")
+        + tab_panel("general", general + optional, active="reminders")
+        + tab_panel("reminders", reminders, active="reminders")
     )
-    return document(body)
+    return document(body, with_tabs=True)
 
 
 def login_html(account: Account, *, can_reveal: bool) -> str:
     password = "••••••••" if account.has_password else "—"
     reveal = status_pill("Owner can reveal") if can_reveal and account.has_password else ""
+    creds = section_card(
+        "Credentials",
+        kv_rows(
+            [
+                ("Mobile", account.login_mobile or "—"),
+                ("Email", account.login_email or "—"),
+                ("Password", password),
+                ("2FA", account.two_fa_method or "—"),
+            ]
+        ),
+    )
+    more = accordion(
+        "Security notes",
+        notice_card("Credentials stay encrypted. Reveal only through the secure owner flow."),
+        open_=False,
+    )
     body = (
         app_header(
             title=account.line_label,
             subtitle=f"{account.banking_provider} · Login",
             brand=BRAND,
         )
-        + section(
-            "Credentials",
-            kv_rows(
-                [
-                    ("Mobile", account.login_mobile or "—"),
-                    ("Email", account.login_email or "—"),
-                    ("Password", password),
-                    ("2FA", account.two_fa_method or "—"),
-                ]
-            ),
-        )
+        + creds
         + (f'<div class="meta">{reveal}</div>' if reveal else "")
-        + notice_card("Credentials stay encrypted. Reveal only through the secure owner flow.")
+        + more
     )
     return document(body)
 
@@ -307,7 +347,6 @@ def list_items_html(
     items: Iterable[tuple[str, str, str | None]],
     empty_message: str,
 ) -> str:
-    """Generic list: (title, subtitle/value, optional status)."""
     rows = list(items)
     header = app_header(title=title, subtitle=subtitle, brand=BRAND)
     if not rows:
@@ -331,8 +370,8 @@ def detail_html(
 ) -> str:
     body = (
         app_header(title=title, subtitle=subtitle, brand=BRAND)
-        + section("Details", kv_rows(pairs))
-        + (notice_card(escape(notice)) if notice else "")
+        + section_card("Details", kv_rows(pairs))
+        + (accordion("Notes", notice_card(escape(notice)), open_=False) if notice else "")
     )
     return document(body)
 
@@ -344,29 +383,13 @@ def prompt_html(
     title: str | None = None,
     subtitle: str | None = None,
 ) -> str:
-    """Wrap an existing escaped Telegram HTML caption in the Widget chrome."""
     heading = title or SCREEN_TITLES.get(screen, "Operation Greenline")
     body = (
         app_header(title=heading, subtitle=subtitle or BRAND)
         + notice_card(caption_html)
+        + accordion("Tip", notice_card("Reply with text below when prompted. Actions use the buttons under this card."), open_=False)
     )
     return document(body)
-
-
-def confirm_html(*, title: str, subtitle: str, pairs: list[tuple[str, str]]) -> str:
-    return detail_html(title=title, subtitle=subtitle, pairs=pairs)
-
-
-def history_html(account: Account, entries_text_rows: list[tuple[str, str]], *, page_label: str) -> str:
-    header = app_header(
-        title=account.line_label,
-        subtitle="Balance history",
-        brand=BRAND,
-    )
-    if not entries_text_rows:
-        return document(header + empty_state("No balance updates yet.") + footer(page_label))
-    rows = kv_rows([(a, b) for a, b in entries_text_rows])
-    return document(header + section("History", rows) + footer(page_label))
 
 
 def short_updated(value: str | None, tz: ZoneInfo) -> str:

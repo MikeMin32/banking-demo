@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from app.keyboards.accounts import account_button_label
 from app.keyboards.callbacks import AccCB, MenuCB, SetCB, WdCB
 from app.keyboards.common import main_menu_kb
-from app.ui.render import widget_size_ok
-from app.ui.screens import dashboard_html, prompt_html
+from app.ui.render import banner_exists, banner_path, widget_size_ok
+from app.ui.screens import account_details_html, dashboard_html, prompt_html
 from app.utils.ui_preview import sample_account_details
-from app.ui.screens import account_details_html
 
 
 def test_main_menu_has_quick_update() -> None:
@@ -45,10 +42,21 @@ def test_callback_routing_prefixes() -> None:
     assert SetCB(o="tog").pack().startswith("s:")
 
 
-def test_legacy_banner_assets_still_on_disk() -> None:
-    """Banners remain as unused assets; Widget UI no longer depends on them."""
-    banner_dir = Path(__file__).resolve().parents[1] / "assets" / "banners"
-    assert (banner_dir / "dashboard.png").is_file()
+def test_page_banners_exist_for_widget_screens() -> None:
+    for name in (
+        "dashboard",
+        "accounts",
+        "account-details",
+        "balance-summary",
+        "add-account",
+        "expected-charges",
+        "login-details",
+        "settings",
+        "quick-add",
+        "transactions",
+    ):
+        assert banner_exists(name)
+        assert banner_path(name).stat().st_size > 0
 
 
 def test_core_widgets_fit_telegram_limits() -> None:

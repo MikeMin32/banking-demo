@@ -1,10 +1,10 @@
-"""Reusable Widget HTML fragments for Operation Greenline."""
+"""Reusable in-Widget UI building blocks (approved preview language)."""
 
 from __future__ import annotations
 
 from html import escape
 
-from app.ui.theme import BASE_CSS, BRAND
+from app.ui.theme import BASE_CSS, BRAND, TABS_JS
 
 
 def e(value: object | None, fallback: str = "—") -> str:
@@ -16,11 +16,13 @@ def e(value: object | None, fallback: str = "—") -> str:
     return escape(text)
 
 
-def document(body: str) -> str:
+def document(body: str, *, with_tabs: bool = False) -> str:
+    script = TABS_JS if with_tabs else ""
     return (
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        f"<style>{BASE_CSS}</style></head><body><div class=\"w\">{body}</div></body></html>"
+        f"<style>{BASE_CSS}</style></head><body><div class=\"w\">{body}</div>"
+        f"{script}</body></html>"
     )
 
 
@@ -50,18 +52,41 @@ def balance_card(label: str, amount: str) -> str:
     )
 
 
-def section(title: str, rows_html: str) -> str:
+def kv_rows(pairs: list[tuple[str, str]]) -> str:
+    chunks = [
+        f'<div class="row"><span class="k">{e(key)}</span>'
+        f'<span class="v">{e(value)}</span></div>'
+        for key, value in pairs
+    ]
+    return f'<div class="rows">{"".join(chunks)}</div>'
+
+
+def section_card(title: str, rows_html: str) -> str:
     return f'<div class="card"><div class="h">{e(title)}</div>{rows_html}</div>'
 
 
-def kv_rows(pairs: list[tuple[str, str]], *, value_class: str = "v") -> str:
-    chunks: list[str] = []
-    for key, value in pairs:
-        chunks.append(
-            f'<div class="row"><span class="k">{e(key)}</span>'
-            f'<span class="{value_class}">{e(value)}</span></div>'
+def tab_bar(tabs: list[tuple[str, str]], *, active: str) -> str:
+    """tabs: list of (id, label). Presentation-only; switched by TABS_JS."""
+    buttons: list[str] = []
+    for tab_id, label in tabs:
+        cls = ' class="on"' if tab_id == active else ""
+        buttons.append(
+            f'<button type="button"{cls} data-tab="{e(tab_id)}">{e(label)}</button>'
         )
-    return "".join(chunks)
+    return f'<div class="tabs" role="tablist">{"".join(buttons)}</div>'
+
+
+def tab_panel(tab_id: str, inner_html: str, *, active: str) -> str:
+    hidden = "" if tab_id == active else " hidden"
+    return f'<div class="panel" data-panel="{e(tab_id)}"{hidden}>{inner_html}</div>'
+
+
+def accordion(summary: str, inner_html: str, *, open_: bool = False) -> str:
+    op = " open" if open_ else ""
+    return (
+        f'<details class="accbox"{op}><summary>{e(summary)}</summary>'
+        f"{inner_html}</details>"
+    )
 
 
 def status_pill(text: str) -> str:
@@ -73,7 +98,6 @@ def empty_state(message: str) -> str:
 
 
 def notice_card(html_body: str) -> str:
-    """Pass-through for trusted Telegram-HTML captions already escaped at source."""
     return f'<div class="notice">{html_body}</div>'
 
 

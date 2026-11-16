@@ -84,7 +84,9 @@ def test_widget_html_structure_and_size() -> None:
     assert "Expected" in html
     assert "Account Information" in html
     assert "OPERATION GREENLINE" in html
-    assert "<script" not in html.lower()
+    assert 'data-tab="overview"' in html
+    assert "<details" in html
+    assert "<script" in html.lower()  # in-widget tab switcher only
     assert "http://" not in html
     assert "https://" not in html
     assert_no_secrets(html)
