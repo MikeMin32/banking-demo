@@ -132,8 +132,8 @@ async def test_account_view_kb_four_by_two() -> None:
 
     labels = [[btn.text for btn in row] for row in rows]
     assert labels == [
-        ["💵 Balance", "📋 Transactions"],
-        ["➕ Add Charge", "💰 Deposit"],
+        ["💰 Update Balance", "📋 Transactions"],
+        ["➕ Add Charge", "💵 Deposit"],
         ["🔐 Login Details", "✏️ Edit Account"],
         ["⬅️ Back", "🏠 Home"],
     ]

@@ -95,12 +95,12 @@ async def _list_accounts(query: CallbackQuery, services: Services, *, archived: 
         account.id: account.balance_minor - snap.pending_by_account.get(account.id, 0)
         for account in items
     }
+    totals_map = await services.totals.for_accounts(items) if items else {}
     if not items and page == 0:
         text = "No accounts in this list yet." if not archived else "No archived accounts."
     elif archived:
         text = "Archived accounts:"
     else:
-        totals_map = await services.totals.for_accounts(items)
         from app.utils.account_context import account_identity_line, totals_block
         from app.utils.formatting import accounts_page_summary
 
@@ -109,27 +109,34 @@ async def _list_accounts(query: CallbackQuery, services: Services, *, archived: 
             for account in items
         ]
         text = accounts_page_summary(blocks)
+    from app.ui.rich_screens import accounts_overview_rich
+
     await render_screen(
         query,
         "accounts",
         text,
         accounts_list_kb(items, page=page, total=total, archived=archived, available_by_account=available),
+        rich=accounts_overview_rich(items, totals_map, archived=archived),
     )
 
 
 async def render_account(target: Message | CallbackQuery, services: Services, account_id: int, *, page: int = 0) -> None:
     account = await services.accounts.get(account_id)
     totals = await services.totals.for_account(account.id)
+    caption = account_card(
+        account,
+        services.tz,
+        pending_minor=totals.expected_minor,
+        totals=totals,
+    )
+    from app.ui.rich_screens import account_details_rich_from_totals
+
     await render_screen(
         target,
         "account-details",
-        account_card(
-            account,
-            services.tz,
-            pending_minor=totals.expected_minor,
-            totals=totals,
-        ),
+        caption,
         account_view_kb(account, from_page=page),
+        rich=account_details_rich_from_totals(totals, services.tz),
     )
 
 

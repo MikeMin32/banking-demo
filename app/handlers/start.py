@@ -80,7 +80,15 @@ async def cb_overview(query: CallbackQuery, services: Services, state: FSMContex
     reminder = await services.reminders.get_settings()
     snap = await services.dashboard.snapshot(stale_hours=reminder.stale_hours)
     pages = overview_pages(snap, services.tz)
-    await render_screen(query, "balance-summary", pages[0], overview_kb(page=0, total_pages=len(pages)))
+    from app.ui.rich_screens import balance_summary_rich
+
+    await render_screen(
+        query,
+        "balance-summary",
+        pages[0],
+        overview_kb(page=0, total_pages=len(pages)),
+        rich=balance_summary_rich(snap),
+    )
 
 
 @router.callback_query(AccCB.filter(F.o == "ovw"))
@@ -90,7 +98,15 @@ async def cb_overview_page(query: CallbackQuery, callback_data: AccCB, services:
     snap = await services.dashboard.snapshot(stale_hours=reminder.stale_hours)
     pages = overview_pages(snap, services.tz)
     page = min(max(callback_data.p, 0), len(pages) - 1)
-    await render_screen(query, "balance-summary", pages[page], overview_kb(page=page, total_pages=len(pages)))
+    from app.ui.rich_screens import balance_summary_rich
+
+    await render_screen(
+        query,
+        "balance-summary",
+        pages[page],
+        overview_kb(page=page, total_pages=len(pages)),
+        rich=balance_summary_rich(snap),
+    )
 
 
 @router.message(StateFilter(default_state), F.text & ~F.text.startswith("/"))

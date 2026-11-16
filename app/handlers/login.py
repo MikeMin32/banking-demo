@@ -37,11 +37,14 @@ async def render_login(
     if can_reveal is None:
         can_reveal = False
     _, text = await account_body(services, account.id, login_section(account))
+    from app.ui.rich_screens import login_rich
+
     await render_screen(
         target,
         "login-details",
         text,
         login_kb(account.id, can_reveal=can_reveal),
+        rich=login_rich(account, can_reveal=bool(can_reveal)),
     )
 
 

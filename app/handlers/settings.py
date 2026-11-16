@@ -29,7 +29,18 @@ def _settings_text(enabled: bool) -> str:
 
 async def _render_settings(target: Message | CallbackQuery, services: Services) -> None:
     settings = await services.reminders.get_settings()
-    await render_screen(target, "settings", _settings_text(settings.enabled), settings_kb(settings))
+    from app.ui.rich_screens import settings_rich
+
+    await render_screen(
+        target,
+        "settings",
+        _settings_text(settings.enabled),
+        settings_kb(settings),
+        rich=settings_rich(
+            reminders_enabled=settings.enabled,
+            reminder_time=services.settings.reminder_time,
+        ),
+    )
 
 
 @router.callback_query(MenuCB.filter(F.a == "settings"))

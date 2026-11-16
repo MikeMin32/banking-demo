@@ -44,9 +44,10 @@ def accounts_list_kb(
     builder = InlineKeyboardBuilder()
     for account in accounts:
         pending_available = available_by_account.get(account.id, account.balance_minor)
-        icon = "📦 " if archived else ""
+        icon = "📦 " if archived else "🏦 "
+        base = account_button_label(account, pending_available)
         builder.button(
-            text=f"{icon}{account_button_label(account, pending_available)}"[:64],
+            text=f"{icon}{base}"[:64],
             callback_data=AccCB(o="view", i=account.id, p=page).pack(),
         )
     builder.adjust(1)
@@ -70,26 +71,55 @@ def accounts_list_kb(
 
 
 def account_view_kb(account: Account, *, from_page: int = 0) -> InlineKeyboardMarkup:
-    # Exact 4×2 layout for mobile. Short "Balance" label avoids iOS truncation.
+    # Exact 4×2 layout for mobile. Native button styles where supported.
     back_op = "alst" if account.is_archived else "list"
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="💵 Balance", callback_data=AccCB(o="bal", i=account.id).pack()),
-        InlineKeyboardButton(text="📋 Transactions", callback_data=AccCB(o="txn", i=account.id).pack()),
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💰 Update Balance",
+                    callback_data=AccCB(o="bal", i=account.id).pack(),
+                    style="primary",
+                ),
+                InlineKeyboardButton(
+                    text="📋 Transactions",
+                    callback_data=AccCB(o="txn", i=account.id).pack(),
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="➕ Add Charge",
+                    callback_data=WdCB(o="add", a=account.id).pack(),
+                    style="danger",
+                ),
+                InlineKeyboardButton(
+                    text="💵 Deposit",
+                    callback_data=TuCB(o="add", a=account.id).pack(),
+                    style="success",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔐 Login Details",
+                    callback_data=AccCB(o="log", i=account.id).pack(),
+                ),
+                InlineKeyboardButton(
+                    text="✏️ Edit Account",
+                    callback_data=AccCB(o="edt", i=account.id).pack(),
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ Back",
+                    callback_data=AccCB(o=back_op, p=from_page).pack(),
+                ),
+                InlineKeyboardButton(
+                    text="🏠 Home",
+                    callback_data=MenuCB(a="menu").pack(),
+                ),
+            ],
+        ]
     )
-    builder.row(
-        InlineKeyboardButton(text="➕ Add Charge", callback_data=WdCB(o="add", a=account.id).pack()),
-        InlineKeyboardButton(text="💰 Deposit", callback_data=TuCB(o="add", a=account.id).pack()),
-    )
-    builder.row(
-        InlineKeyboardButton(text="🔐 Login Details", callback_data=AccCB(o="log", i=account.id).pack()),
-        InlineKeyboardButton(text="✏️ Edit Account", callback_data=AccCB(o="edt", i=account.id).pack()),
-    )
-    builder.row(
-        InlineKeyboardButton(text="⬅️ Back", callback_data=AccCB(o=back_op, p=from_page).pack()),
-        InlineKeyboardButton(text="🏠 Home", callback_data=MenuCB(a="menu").pack()),
-    )
-    return builder.as_markup()
 
 
 def transactions_hub_kb(account_id: int) -> InlineKeyboardMarkup:
@@ -164,9 +194,9 @@ def currency_kb(*, account_id: int | None = None) -> InlineKeyboardMarkup:
     builder.button(text="🇪🇺 EUR", callback_data=PickCB(k="cur", v="EUR").pack())
     builder.adjust(2)
     if account_id is not None:
-        builder.row(InlineKeyboardButton(text="✖️ Cancel", callback_data=AccCB(o="edt", i=account_id).pack()))
+        builder.row(InlineKeyboardButton(text="❌ Cancel", callback_data=AccCB(o="edt", i=account_id).pack()))
     else:
-        builder.row(InlineKeyboardButton(text="✖️ Cancel", callback_data=MenuCB(a="menu").pack()))
+        builder.row(InlineKeyboardButton(text="❌ Cancel", callback_data=MenuCB(a="menu").pack()))
     return builder.as_markup()
 
 
@@ -179,7 +209,7 @@ def provider_kb(*, account_id: int | None = None) -> InlineKeyboardMarkup:
     builder.button(text="Other", callback_data=PickCB(k="prv", v="OTHER").pack())
     builder.adjust(1)
     cancel = AccCB(o="edt", i=account_id).pack() if account_id is not None else MenuCB(a="menu").pack()
-    builder.row(InlineKeyboardButton(text="✖️ Cancel", callback_data=cancel))
+    builder.row(InlineKeyboardButton(text="❌ Cancel", callback_data=cancel))
     return builder.as_markup()
 
 
@@ -203,7 +233,7 @@ def create_confirm_kb() -> InlineKeyboardMarkup:
     from app.keyboards.callbacks import FormCB
 
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Save Account", callback_data=FormCB(o="ok").pack())
+    builder.button(text="💾 Save Account", callback_data=FormCB(o="ok").pack())
     builder.button(text="✏️ Edit Information", callback_data=FormCB(o="edit").pack())
     builder.button(text="❌ Cancel", callback_data=FormCB(o="cancel").pack())
     builder.adjust(1)
@@ -244,9 +274,9 @@ def overview_kb(*, page: int, total_pages: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     buttons: list[InlineKeyboardButton] = []
     if page > 0:
-        buttons.append(InlineKeyboardButton(text="⬅️ Prev", callback_data=AccCB(o="ovw", p=page - 1).pack()))
+        buttons.append(InlineKeyboardButton(text="⬅️ Previous", callback_data=AccCB(o="ovw", p=page - 1).pack()))
     if page < total_pages - 1:
-        buttons.append(InlineKeyboardButton(text="➡️ Next", callback_data=AccCB(o="ovw", p=page + 1).pack()))
+        buttons.append(InlineKeyboardButton(text="Next ➡️", callback_data=AccCB(o="ovw", p=page + 1).pack()))
     if buttons:
         builder.row(*buttons)
     _nav_row(builder, back="menu")

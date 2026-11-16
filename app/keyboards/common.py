@@ -12,14 +12,38 @@ HISTORY_PAGE_SIZE = 8
 
 
 def main_menu_kb() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🏦 Bank Accounts", callback_data=MenuCB(a="accounts").pack())
-    builder.button(text="💰 Balance Summary", callback_data=MenuCB(a="overview").pack())
-    builder.button(text="➕ Add Account", callback_data=MenuCB(a="add").pack())
-    builder.button(text="⚙️ Settings", callback_data=MenuCB(a="settings").pack())
-    builder.button(text="⚡ Quick Update", callback_data=MenuCB(a="quick").pack())
-    builder.adjust(2, 2, 1)
-    return builder.as_markup()
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🏦 Accounts",
+                    callback_data=MenuCB(a="accounts").pack(),
+                    style="primary",
+                ),
+                InlineKeyboardButton(
+                    text="📊 Balance Summary",
+                    callback_data=MenuCB(a="overview").pack(),
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="➕ Add Account",
+                    callback_data=MenuCB(a="add").pack(),
+                    style="success",
+                ),
+                InlineKeyboardButton(
+                    text="⚙️ Settings",
+                    callback_data=MenuCB(a="settings").pack(),
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⚡ Quick Update",
+                    callback_data=MenuCB(a="quick").pack(),
+                ),
+            ],
+        ]
+    )
 
 
 def back_main_kb(*, back: str = "menu") -> InlineKeyboardMarkup:
@@ -72,13 +96,13 @@ def form_kb(*, skip: bool = False, zero: bool = False, keep: bool = False, back:
         row.append(InlineKeyboardButton(text="✅ Keep current", callback_data=FormCB(o="keep").pack()))
     if zero:
         row.append(InlineKeyboardButton(text="0️⃣ Use 0", callback_data=FormCB(o="zero").pack()))
-    row.append(InlineKeyboardButton(text="✖️ Cancel", callback_data=FormCB(o="cancel").pack()))
+    row.append(InlineKeyboardButton(text="❌ Cancel", callback_data=FormCB(o="cancel").pack()))
     builder.row(*row)
     _nav_row(builder, back=back)
     return builder.as_markup()
 
 
-def confirm_action_kb(*, yes_data: str, no_data: str, yes_text: str = "✅ Confirm", no_text: str = "✖️ Cancel") -> InlineKeyboardMarkup:
+def confirm_action_kb(*, yes_data: str, no_data: str, yes_text: str = "✅ Confirm", no_text: str = "❌ Cancel") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text=yes_text, callback_data=yes_data),
